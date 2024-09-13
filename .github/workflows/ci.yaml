@@ -1,0 +1,29 @@
+name: EasyCrypt CI
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+env:
+  OPAMROOT: /home/charlie/.opam
+  OPAMCONFIRMLEVEL: unsafe-yes
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/easycrypt/ec-build-box
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: install easycrypt
+        run: |
+          opam pin add -n easycrypt https://github.com/EasyCrypt/easycrypt.git#r2024.01
+          opam install easycrypt
+      - name: detect SMT solvers
+        run: opam exec -- easycrypt why3config
+
+      - name: test proof
+        run: opam exec -- easycrypt runtest tests.config proof
