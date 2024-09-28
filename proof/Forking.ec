@@ -9,6 +9,7 @@
 pragma Goals:printall.
 require import AllCore List Distr DInterval Finite StdOrder StdBigop RealFun.
 import RField RealOrder Bigreal BRA.
+require Stopping.
 
 (* TODO: Properly import Rewindable form easycrypt-rewinding. *)
 type state_t.
@@ -18,61 +19,26 @@ module type Rewindable = {
   proc setState(st : state_t) : unit
 }.
 
-type query_t, resp_t.
+type aux_t.
+
+clone import Stopping as ForkStopping with
+  type out_t <= int * aux_t.
+(* FIXME: Why is this not imported as well? *)
+type out_t = int * aux_t.
 
 (* TODO: Generalize, e.g., to (query_t -> resp_t distr)? *)
 (* TODO: Remove uniformity assumption? *)
 op [lossless uniform] dresp : resp_t distr.
 
+(* Forgetful random oracle. *)
 (* NOTE: The oracle is allowed to behave inconsistently.
  * This is intentional, otherwise we may not be able to
  * repogram the oracle at the forking point. *)
-module Oracle = {
+module FRO : Oracle = {
   proc get(q : query_t) : resp_t = {
     var r : resp_t;
     r <$ dresp;
     return r;
-  }
-}.
-
-(* Specification of modules that use Oracle
- * and can be stopped after each query. *)
-type in_t.
-type aux_t.
-type out_t = int * aux_t.
-
-module type Stoppable = {
-  proc init(i : in_t) : query_t
-  proc continue(r : resp_t) : query_t
-  proc finish(r : resp_t) : out_t
-}.
-
-(* Max number of queries. *)
-const Q : int.
-axiom Q_pos : 1 <= Q.
-
-(* WLOG, we assume that the module makes _exactly_ Q queries,
- * a run of the module is then defined as follows. *)
-module Runner(S : Stoppable) = {
-  proc run(i : in_t) : out_t = {
-    var o : out_t;
-    var q : query_t;
-    var r : resp_t;
-    var c : int;
-
-    q <@ S.init(i);
-    c <- 1;
-
-    while (c < Q) {
-      r <@ Oracle.get(q);
-      q <@ S.continue(r);
-      c <- c + 1;
-    }
-
-    r <@ Oracle.get(q);
-    o <@ S.finish(r);
-
-    return o;
   }
 }.
 
@@ -118,7 +84,7 @@ module Forker(F : Forkable) = {
     while (c < Q) {
       st <@ F.getState();
       sts <- sts ++ [st];
-      r <@ Oracle.get(q);
+      r <@ FRO.get(q);
       log <- log ++ [(q, r)];
       q <@ F.continue(r);
       c <- c + 1;
@@ -126,7 +92,7 @@ module Forker(F : Forkable) = {
 
     st <@ F.getState();
     sts <- sts ++ [st];
-    r <@ Oracle.get(q);
+    r <@ FRO.get(q);
     log <- log ++ [(q, r)];
     o <@ F.finish(r);
 
@@ -142,13 +108,13 @@ module Forker(F : Forkable) = {
     log <- [];
 
     while (c < Q) {
-      r <@ Oracle.get(q);
+      r <@ FRO.get(q);
       log <- log ++ [(q, r)];
       q <@ F.continue(r);
       c <- c + 1;
     }
 
-    r <@ Oracle.get(q);
+    r <@ FRO.get(q);
     log <- log ++ [(q, r)];
     o <@ F.finish(r);
 
@@ -187,7 +153,7 @@ module Forker(F : Forkable) = {
 
 section.
 
-declare module F <: Forkable {-Oracle, -Runner, -Forker}.
+declare module F <: Forkable {-FRO, -Runner, -Forker}.
 
 (* Coppied from easycrypt-rewinding. *)
 declare axiom F_rewindable :
@@ -242,7 +208,7 @@ qed.
 
 local lemma fst_run_equiv :
   equiv[
-    Forker(F).fst ~ Runner(F).run :
+    Forker(F).fst ~ Runner(F, FRO).run :
     ={arg, glob F} ==> ={glob F} /\ res{1}.`1 = res{2}
   ].
 proof.
@@ -269,13 +235,13 @@ qed.
 (* TODO: Decompose? *)
 local lemma pr_succ_resp_eq &m i :
   Pr[Forker(F).run(i) @ &m : success Forker.j1 /\ Forker.r1 = Forker.r2] <=
-  Pr[Runner(F).run(i) @ &m : success res.`1] * (1%r / (size (to_seq (support dresp)))%r).
+  Pr[Runner(F, FRO).run(i) @ &m : success res.`1] * (1%r / (size (to_seq (support dresp)))%r).
 proof.
 pose inv_supp_size := 1%r / (size (to_seq (support dresp)))%r.
 byphoare (: arg = i /\ glob F = (glob F){m} ==> _) => //.
 proc.
 seq 3 : (success Forker.j1)
-  Pr[Runner(F).run(i) @ &m : success res.`1] inv_supp_size
+  Pr[Runner(F, FRO).run(i) @ &m : success res.`1] inv_supp_size
   _ 0%r
   (size Forker.log1 = Q);
 last by trivial.
@@ -397,14 +363,14 @@ trivial.
 qed.
 
 local lemma pr_succ_sum &m i:
-  Pr[Runner(F).run(i) @ &m : success res.`1] =
-  bigi predT (fun j => Pr[Runner(F).run(i) @ &m : res.`1 = j]) 0 Q.
+  Pr[Runner(F, FRO).run(i) @ &m : success res.`1] =
+  bigi predT (fun j => Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j]) 0 Q.
 proof.
 rewrite /success.
 have -> :
   forall n, 0 <= n =>
-  Pr[Runner(F).run(i) @ &m : 0 <= res.`1 < n] =
-  bigi predT (fun j => Pr[Runner(F).run(i) @ &m : res.`1 = j]) 0 n;
+  Pr[Runner(F, FRO).run(i) @ &m : 0 <= res.`1 < n] =
+  bigi predT (fun j => Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j]) 0 n;
 [idtac | smt(Q_pos) | trivial].
 apply ge0ind.
 smt().
@@ -446,7 +412,7 @@ local module SplitForker(F : Forkable) = {
     while (c < C) {
       st <@ F.getState();
       sts <- sts ++ [st];
-      r <@ Oracle.get(q);
+      r <@ FRO.get(q);
       log <- log ++ [(q, r)];
       q <@ F.continue(r);
       c <- c + 1;
@@ -472,7 +438,7 @@ local module SplitForker(F : Forkable) = {
     while (c < Q) {
       st <@ F.getState();
       sts <- sts ++ [st];
-      r <@ Oracle.get(q);
+      r <@ FRO.get(q);
       log <- log ++ [(q, r)];
       q <@ F.continue(r);
       c <- c + 1;
@@ -480,7 +446,7 @@ local module SplitForker(F : Forkable) = {
 
     st <@ F.getState();
     sts <- sts ++ [st];
-    r <@ Oracle.get(q);
+    r <@ FRO.get(q);
     log <- log ++ [(q, r)];
     o <@ F.finish(r);
 
@@ -700,7 +666,7 @@ local module InitRewinder(F : Forkable) = {
 
 (* FIXME: Import it properly. *)
 (* lemma rew_with_init &m M i :
- *   Pr[ QQ(A,B).main(i) @ &m : M res.`1 /\ M res.`2 ] 
+ *   Pr[ QQ(A,B).main(i) @ &m : M res.`1 /\ M res.`2 ]
  *     >= Pr[ QQ(A,B).main_run(i) @ &m : M res ] ^ 2. *)
 
 local lemma rewinder_run_equiv :
@@ -720,7 +686,7 @@ qed.
 
 local lemma pr_wrapper_run &m i j :
   0 <= j < Q =>
-  Pr[Runner(F).run(i) @ &m : res.`1 = j] = 
+  Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j] =
   Pr[InitRewinder(F).main_run((i, j)) @ &m : res.`2 = j].
 proof.
 move => j_range.
@@ -827,7 +793,7 @@ qed.
 local lemma pr_fork_specific &m i j :
   0 <= j < Q =>
   Pr[Forker(F).run(i) @ &m : Forker.j1 = j /\ Forker.j2 = j] >=
-  Pr[Runner(F).run(i) @ &m : res.`1 = j] ^ 2.
+  Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j] ^ 2.
 proof.
 move => j_range.
 rewrite pr_run1_eq //.
@@ -866,7 +832,7 @@ rewrite ler_pmul2r => /#.
 qed.
 
 lemma pr_fork_success &m i :
-  let pr_runner_succ = Pr[Runner(F).run(i) @ &m : success res.`1] in
+  let pr_runner_succ = Pr[Runner(F, FRO).run(i) @ &m : success res.`1] in
   let pr_fork_succ   = Pr[Forker(F).run(i) @ &m : success res.`1] in
   pr_fork_succ >= pr_runner_succ ^ 2 / Q%r - pr_runner_succ * (1%r / (size (to_seq (support dresp)))%r).
 proof.
@@ -878,7 +844,7 @@ apply ler_sub; first last.
 apply pr_succ_resp_eq.
 rewrite pr_split_sum.
 rewrite pr_succ_sum.
-have : bigi predT (fun (j : int) => Pr[Runner(F).run(i) @ &m : res.`1 = j] ^ 2) 0 Q <=
+have : bigi predT (fun (j : int) => Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j] ^ 2) 0 Q <=
   bigi predT (fun (j : int) => Pr[Forker(F).run(i) @ &m : Forker.j1 = j /\ Forker.j2 = j]) 0 Q.
   apply ler_sum_seq.
   move => j j_range _.
