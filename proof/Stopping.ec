@@ -15,8 +15,7 @@ module type Stoppable = {
 }.
 
 (* Max number of queries. *)
-const Q : int.
-axiom Q_pos : 1 <= Q.
+const Q : {int | 1 <= Q} as Q_pos.
 
 (* WLOG, we assume that the module makes _exactly_ Q queries,
  * a run of the module is then defined as follows. *)

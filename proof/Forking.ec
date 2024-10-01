@@ -7,6 +7,7 @@
  *)
 
 pragma Goals:printall.
+
 require import AllCore List Distr DInterval Finite StdOrder StdBigop RealFun.
 import RField RealOrder Bigreal BRA.
 require Stopping.
@@ -162,17 +163,16 @@ declare axiom F_rewindable :
   (forall &m st (x: glob F), st = f x => Pr[F.setState(st) @ &m : glob F = x] = 1%r) /\
   islossless F.setState.
 
-
-local lemma get_st_preserves_glob (gF : glob F):
-  phoare[F.getState : (glob F) = gF ==> (glob F) = gF] = 1%r.
+local phoare get_st_preserves_glob (gF : glob F):
+  [F.getState : (glob F) = gF ==> (glob F) = gF] = 1%r.
 proof.
 elim F_rewindable.
-move => f [_ [H [_ _]]].
-proc*.
+move => f [_ [get_st_prop [_ _]]].
+proc *.
 call (_ : glob F = gF ==> glob F = gF /\ res = f gF).
-bypr => &m gF_mem.
-rewrite -gF_mem.
-apply (H &m).
++ bypr => &m gF_mem.
+  rewrite -gF_mem.
+  apply (get_st_prop &m).
 auto.
 qed.
 
@@ -183,9 +183,8 @@ proof.
 byequiv => //.
 proc.
 seq 9 9 : (={glob Forker}).
-sim.
-auto.
-smt().
++ sim.
+auto => /#.
 qed.
 
 local lemma pr_split i &m :
@@ -198,35 +197,33 @@ have -> :
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1] =
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1 /\ Forker.r1 = Forker.r2] +
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1 /\ Forker.r1 <> Forker.r2].
-by rewrite Pr[mu_split Forker.r1 = Forker.r2]; smt().
++ by rewrite Pr[mu_split Forker.r1 = Forker.r2]; smt().
 have ABC_le_BC :
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1 /\ Forker.r1 = Forker.r2] <=
   Pr[Forker(F).run(i) @ &m : success Forker.j1 /\ Forker.r1 = Forker.r2].
-rewrite Pr[mu_sub] //.
++ by rewrite Pr[mu_sub].
 smt().
 qed.
 
-local lemma fst_run_equiv :
-  equiv[
-    Forker(F).fst ~ Runner(F, FRO).run :
-    ={arg, glob F} ==> ={glob F} /\ res{1}.`1 = res{2}
-  ].
+local equiv fst_run_equiv :
+  Forker(F).fst ~ Runner(F, FRO).run :
+  ={arg, glob F} ==> ={glob F} /\ res{1}.`1 = res{2}.
 proof.
 proc.
 call (_ : true).
 wp.
-call (_ : true). sim.
+call (_ : true); 1: sim.
 wp.
-conseq (_ : _ ==> ={q, glob F}). trivial.
+conseq (_ : _ ==> ={q, glob F}) => //.
 ecall {1} (get_st_preserves_glob (glob F){1}).
 while (={q, c, glob F}).
-wp.
-call (_ : true).
-wp.
-call (_ : true). sim.
-wp.
-ecall {1} (get_st_preserves_glob (glob F){1}).
-auto.
++ wp.
+  call (_ : true).
+  wp.
+  call (_ : true); 1: sim.
+  wp.
+  ecall {1} (get_st_preserves_glob (glob F){1}).
+  auto.
 wp.
 call (_ : true).
 auto.
@@ -247,90 +244,87 @@ seq 3 : (success Forker.j1)
 last by trivial.
 
 (* #pre ==> size Forker.log1 = Q *)
-have fst_log_size : hoare[Forker(F).fst : true ==> size res.`2 = Q].
-proc. inline.
-call (_ : true).
-wp.
-rnd.
-wp.
-call (_ : true).
-while (c = size log + 1 /\ c <= Q).
-wp. call (_ : true). wp. rnd. wp. call (_ : true). skip. smt(size_cat).
-wp.
-call (_ : true).
-wp.
-skip => />.
-smt(Q_pos size_cat).
-wp.
-call fst_log_size.
-auto.
++ have fst_log_size : hoare[Forker(F).fst : true ==> size res.`2 = Q].
+  + proc; inline.
+    call (_ : true).
+    wp.
+    rnd.
+    wp.
+    call (_ : true).
+    while (c = size log + 1 /\ c <= Q).
+    + wp; call (_ : true); wp; rnd; wp; call (_ : true); skip.
+      smt(size_cat).
+    wp.
+    call (_ : true).
+    wp.
+    skip => />.
+    smt(Q_pos size_cat).
+  wp.
+  call fst_log_size.
+  auto.
 
 (* #pre ==> success Forker.j1 *)
-wp.
-call (_ : glob F = (glob F){m} /\ arg = i ==> success res.`1.`1).
-bypr.
-move => &m0 glob_eq.
-byequiv => //.
-conseq (_ : ={arg, glob F} ==> ={glob F} /\ res{1}.`1 = res{2}). smt(). trivial.
-apply fst_run_equiv.
-auto.
++ wp.
+  call (_ : glob F = (glob F){m} /\ arg = i ==> success res.`1.`1).
+  + bypr => &m0 glob_eq.
+    byequiv => //.
+    conseq fst_run_equiv; smt().
+  auto.
 
 (* success Forker.j1 ==> #post *)
-inline.
-wp.
-conseq (_ : _ ==> success Forker.j1 /\ Forker.r1 = (head witness log).`2). smt(nth_cat size_takel nth0_head).
-(* FIXME: This is rather painful. Call doesn't work in pHL? *)
-seq 10 : (success Forker.j1 /\ Forker.r1 = (head witness log).`2)
-  inv_supp_size 1%r
-  _ 0%r;
-1,3,5: trivial.
-wp.
-have mu_dresp_eq :
-  forall r0, mu dresp (fun r => r0 = r) <= inv_supp_size.
-move => r0.
-have -> : (fun r => r0 = r) = pred1 r0 by smt().
-rewrite (mu1_uni_ll _ _ dresp_uni dresp_ll).
-smt(invr_ge0 size_ge0).
-case (Forker.j1 = Q - 1).
-
-(* case: Forker.j1 = Q*)
-rcondf 6. wp. call (_ : true). auto.
-rnd. wp. simplify.
-call (_ : true). auto.
-move => &hr [[_ succ] _].
-rewrite succ /=.
-apply mu_dresp_eq.
-
-(* case: Forker.j1 <> Q *)
-unroll 6. rcondt 6. wp. call (_ : true). wp. skip. smt().
-seq 9 : (success Forker.j1 /\ Forker.r1 = (head witness log).`2)
-  inv_supp_size 1%r
-  _ 0%r
-  (log <> []);
-3,5: trivial.
-wp. rnd. wp. call (_ : true). wp. skip => /#.
-wp. rnd. wp. call (_ : true). wp. skip => /=.
-move => &hr [[_ succ] _].
-rewrite succ /=.
-apply mu_dresp_eq.
-
-hoare. rnd. wp.
-while (log <> [] /\ ! (success Forker.j1 /\ Forker.r1 = (head witness log).`2)).
-wp. call (_ : true). wp. rnd. wp. skip => /#.
-wp. call (_ : true). skip => /#.
-
-hoare. call (_ : true). auto.
++ inline.
+  wp.
+  conseq (_ : _ ==> success Forker.j1 /\ Forker.r1 = (head witness log).`2).
+  + smt(nth_cat size_takel nth0_head).
+  (* FIXME: This is rather painful. Call doesn't work in pHL? *)
+  seq 10 : (success Forker.j1 /\ Forker.r1 = (head witness log).`2)
+    inv_supp_size 1%r
+    _ 0%r;
+  1,3,5: trivial; first last.
+  + hoare; call (_ : true); auto.
+  wp.
+  have mu_dresp_eq :
+    forall r0, mu dresp (fun r => r0 = r) <= inv_supp_size.
+  + move => r0.
+    have -> : (fun r => r0 = r) = pred1 r0 by smt().
+    rewrite (mu1_uni_ll _ _ dresp_uni dresp_ll).
+    smt(invr_ge0 size_ge0).
+  case (Forker.j1 = Q - 1).
+  (* case: Forker.j1 = Q*)
+  + rcondf 6.
+    + wp; call (_ : true); auto.
+    rnd; wp => /=.
+    call (_ : true); auto.
+    move => &hr [[_ succ] _].
+    rewrite succ /=.
+    apply mu_dresp_eq.
+  (* case: Forker.j1 <> Q *)
+  unroll 6; rcondt 6.
+  + wp; call (_ : true); wp; skip => /#.
+  seq 9 : (success Forker.j1 /\ Forker.r1 = (head witness log).`2)
+    inv_supp_size 1%r
+    _ 0%r
+    (log <> []);
+  3,5: trivial.
+  + wp; rnd; wp; call (_ : true); wp; skip => /#.
+  + wp; rnd; wp; call (_ : true); wp; skip => /=.
+    move => &hr [[_ succ] _].
+    rewrite succ /=.
+    apply mu_dresp_eq.
+  hoare.
+  rnd; wp.
+  while (log <> [] /\ ! (success Forker.j1 /\ Forker.r1 = (head witness log).`2)).
+  + wp; call (_ : true); wp; rnd; wp; skip => /#.
+  wp; call (_ : true); skip => /#.
 
 (* ! success Forker.j1 ==> #post *)
 hoare.
-conseq (_ : _ ==> ! success Forker.j1); first by smt().
+conseq (_ : _ ==> ! success Forker.j1); 1: smt().
 wp.
 call (_ : true) => //.
 call (_ : true).
 auto.
 qed.
-
-print glob Forker.
 
 (* FIXME: The following two lemmas are almost identical.
  * Try to extract the common bits into a separate lemma or
@@ -345,21 +339,17 @@ have -> :
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ 0 <= Forker.j1 && Forker.j1 < n] =
   bigi predT (fun j => Pr[Forker(F).run(i) @ &m : Forker.j1 = j /\ Forker.j2 = j]) 0 n;
 [idtac | smt(Q_pos) | trivial].
-apply ge0ind.
-smt().
-simplify.
-rewrite big_geq; 1: trivial.
-have -> : forall x, (0 <= x < 0) = false by smt().
-simplify.
-rewrite Pr[mu_false] //.
-simplify.
+apply ge0ind => /=.
++ smt().
++ rewrite big_geq => //.
+  have -> /= : forall x, (0 <= x < 0) = false by smt().
+  by rewrite Pr[mu_false].
 move => n n_ge0 ind _.
 rewrite big_int_recr //=.
 rewrite Pr[mu_split Forker.j1 < n].
 have -> : forall b x, ((b /\ 0 <= x < n + 1) /\ x < n) <=> (b /\ 0 <= x < n) by smt().
 rewrite ind //.
-have -> : forall j1 j2, ((j1 = j2 /\ 0 <= j1 < n + 1) /\ ! j1 < n) <=> (j1 = n /\ j2 = n) by smt().
-trivial.
+have -> // : forall j1 j2, ((j1 = j2 /\ 0 <= j1 < n + 1) /\ ! j1 < n) <=> (j1 = n /\ j2 = n) by smt().
 qed.
 
 local lemma pr_succ_sum &m i:
@@ -372,21 +362,17 @@ have -> :
   Pr[Runner(F, FRO).run(i) @ &m : 0 <= res.`1 < n] =
   bigi predT (fun j => Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j]) 0 n;
 [idtac | smt(Q_pos) | trivial].
-apply ge0ind.
-smt().
-simplify.
-rewrite big_geq; 1: trivial.
-have -> : forall x, (0 <= x < 0) = false by smt().
-simplify.
-rewrite Pr[mu_false] //.
-simplify.
+apply ge0ind => /=.
++ smt().
++ rewrite big_geq => //.
+  have -> /= : forall x, (0 <= x < 0) = false by smt().
+  by rewrite Pr[mu_false].
 move => n n_ge0 ind _.
 rewrite big_int_recr //=.
 rewrite Pr[mu_split res.`1 < n].
 have -> : forall x, ((0 <= x < n + 1) /\ x < n) <=> (0 <= x < n) by smt().
 rewrite ind //.
-have -> : forall j, ((0 <= j < n + 1) /\ ! j < n) <=> (j = n) by smt().
-trivial.
+have -> // : forall j, ((0 <= j < n + 1) /\ ! j < n) <=> (j = n) by smt().
 qed.
 
 local module SplitForker(F : Forkable) = {
@@ -540,36 +526,35 @@ inline SplitForker(F).fst_partial SplitForker(F).snd.
 wp.
 call (_ : true).
 wp.
-call (_ : true). auto.
+call (_ : true); auto.
 wp.
 call (_ : true).
 splitwhile{1} 5 : c < C.
-conseq (_ : _ ==> ={glob F} /\ q{1} = q1{2} /\ log{1} = log1{2} ++ log3{2} /\ sts{1} = sts1{2} ++ sts3{2}) => />. smt(catA).
+conseq (_ : _ ==> ={glob F} /\ q{1} = q1{2} /\ log{1} = log1{2} ++ log3{2} /\ sts{1} = sts1{2} ++ sts3{2}) => />.
++ smt(catA).
 while (={glob F} /\ q{1} = q1{2} /\ log{1} = log1{2} ++ log3{2} /\ sts{1} = sts1{2} ++ sts3{2} /\ c{1} = c0{2}).
-  wp. call (_ : true). wp. call (_ : true). auto. wp. call (_ : true). skip => />. smt(catA).
++ wp. call (_ : true). wp. call (_ : true). auto. wp. call (_ : true). skip => />. smt(catA).
 wp.
-conseq (_ : _ ==> ={glob F} /\ q{1} = q0{2} /\ log{1} = log0{2} /\ sts{1} = sts0{2} /\ c{1} = C) => />. smt(cats0).
-while ( ={glob F} /\ q{1} = q0{2} /\ log{1} = log0{2} /\ sts{1} = sts0{2} /\ c{1} = c{2} /\ c{1} <= C /\ C0{2} = C).
-  wp. call (_ : true). wp. call (_ : true). auto. wp. call (_ : true). skip => />. smt().
+conseq (_ : _ ==> ={glob F} /\ q{1} = q0{2} /\ log{1} = log0{2} /\ sts{1} = sts0{2} /\ c{1} = C) => />.
++ smt(cats0).
+while (={glob F} /\ q{1} = q0{2} /\ log{1} = log0{2} /\ sts{1} = sts0{2} /\ c{1} = c{2} /\ c{1} <= C /\ C0{2} = C).
++ wp. call (_ : true). wp. call (_ : true). auto. wp. call (_ : true). skip => />. smt().
 wp.
 call (_ : true).
-auto => />.
-smt().
+auto => /#.
 qed.
 
-local lemma snd_equiv :
-  equiv[
-    Forker(F).snd ~ SplitForker(F).snd :
-    ={glob F, arg} ==> ={glob F} /\ res{1}.`1 = res{2}.`1 /\ res{1}.`2 = res{2}.`2
-  ].
+local equiv snd_equiv :
+  Forker(F).snd ~ SplitForker(F).snd :
+  ={glob F, arg} ==> ={glob F} /\ res{1}.`1 = res{2}.`1 /\ res{1}.`2 = res{2}.`2.
 proof.
 proc => /=.
 sim.
 ecall {2} (get_st_preserves_glob (glob F){2}).
 while (={q, log, glob F, c}).
-sim.
-ecall {2} (get_st_preserves_glob (glob F){2}).
-auto.
++ sim.
+  ecall {2} (get_st_preserves_glob (glob F){2}).
+  auto.
 auto.
 qed.
 
@@ -585,9 +570,8 @@ wp => /=.
 call snd_equiv.
 call (_ : true).
 wp => /=.
-call (fst_split_equiv (j + 1)). smt().
-auto => />.
-smt().
+call (fst_split_equiv (j + 1)); 1: smt().
+auto => /#.
 qed.
 
 local lemma pr_run2_ineq &m i j :
@@ -598,13 +582,14 @@ have :
   Pr[SplitForker(F).run2(i, j) @ &m : res.`1 = j /\ res.`2 = j] <=
     Pr[SplitForker(F).run1(i, j) @ &m : res.`1 = j /\ res.`2 = j] +
   Pr[SplitForker(F).run2(i, j) @ &m : (res.`1 = j /\ res.`2 = j) /\ SplitForker.bad].
-byupto.
++ byupto.
 have -> :
   Pr[SplitForker(F).run2(i, j) @ &m : (res.`1 = j /\ res.`2 = j) /\ SplitForker.bad] = 0%r.
-byphoare (_ : arg.`2 = j ==> _) => //. hoare.
-proc => /=.
-conseq (_ : _ ==> !(j1 = j /\ SplitForker.bad)). smt().
-wp. do 3! (call (_ : true) => //; wp).
++ byphoare (_ : arg.`2 = j ==> _) => //.
+  hoare.
+  proc => /=.
+  conseq (_ : _ ==> !(j1 = j /\ SplitForker.bad)); 1: smt().
+  wp; do 3! (call (_ : true) => //; wp).
 trivial.
 qed.
 
@@ -669,18 +654,17 @@ local module InitRewinder(F : Forkable) = {
  *   Pr[ QQ(A,B).main(i) @ &m : M res.`1 /\ M res.`2 ]
  *     >= Pr[ QQ(A,B).main_run(i) @ &m : M res ] ^ 2. *)
 
-local lemma rewinder_run_equiv :
-  equiv[
-    InitRewinder(F).main_run ~ SplitForker(F).fst :
-    ={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 + 1 = arg{2}.`2  ==> ={glob F} /\ res{1}.`2 = res{2}.`1.`1
-  ].
+local equiv rewinder_run_equiv :
+  InitRewinder(F).main_run ~ SplitForker(F).fst :
+  ={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 + 1 = arg{2}.`2  ==>
+  ={glob F} /\ res{1}.`2 = res{2}.`1.`1.
 proof.
 proc => /=.
 inline InitRewinder.
 wp.
-call (_ : ={glob F}). sim.
+call (_ : ={glob F}); 1: sim.
 wp.
-call (_ : ={glob F}). sim.
+call (_ : ={glob F}); 1: sim.
 auto => />.
 qed.
 
@@ -697,20 +681,16 @@ transitivity
   (={glob F, arg} ==> res{1} = res{2}.`1)
   (={glob F} /\ arg{1} = arg{2}.`1 /\ arg{2} = (i, j) ==> res{1}.`1.`1 = res{2}.`2);
 1,2: smt().
-symmetry.
-(* FIXME: conseq really needed? *)
-conseq (_ : ={arg, glob F} ==> ={glob F} /\ res{1}.`1 = res{2}); 1,2: smt().
-apply fst_run_equiv.
++ by symmetry; conseq fst_run_equiv.
 transitivity
   SplitForker(F).fst
-  (={glob F} /\ arg{1} = arg{2}.`1 /\ arg{2}.`2 = j + 1 ==> ={glob F, res})
-  (={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 = arg{2}.`2 + 1 ==> ={glob F} /\ res{1}.`1.`1 = res{2}.`2).
-move => &1 &2 rel.  exists (glob F){1} (i, j + 1). smt().
-smt().
-apply fst_split_equiv => //. smt().
-symmetry.
-conseq (_ : ={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 + 1 = C{2} ==> ={glob F} /\ res{1}.`2 = res{2}.`1.`1); 1,2: smt().
-apply rewinder_run_equiv.
+  (={glob F} /\ arg{1} = arg{2}.`1 /\ arg{2}.`2 = j + 1 ==> ={res})
+  (={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 = arg{2}.`2 + 1 ==> res{1}.`1.`1 = res{2}.`2).
++ move => &1 &2 rel.
+  exists (glob F){1} (i, j + 1) => /#.
++ smt().
++ conseq (fst_split_equiv (j + 1) _) => /#.
+symmetry; conseq rewinder_run_equiv => /#.
 qed.
 
 local lemma pr_wrapper_main &m i j :
@@ -723,25 +703,24 @@ byequiv => //.
 proc => /=.
 inline InitRewinder SplitForker(F).fst.
 wp.
-call (_ : ={glob F}). sim.
+call (_ : ={glob F}); 1: sim.
 wp.
 call (_ : true).
-wp.
-simplify.
+wp => /=.
 conseq (_ : _ ==>
   ={glob F, o} /\
   nth witness (sts10{1} ++ sts2{1}) j = s{2} /\
   ((nth witness (log10{1} ++ log2{1}) j).`1, j) = r0{2}
-). smt().
+); 1: smt().
 seq 3 4 : (={glob F} /\ C{1} = j + 1 /\ (q0{1}, j) = r0{2} /\
   size log10{1} = j /\ size sts10{1} = j).
-wp.
-call (_ : ={glob F, arg} /\ arg{1}.`2 = j + 1 ==> ={glob F, res} /\ size res{1}.`2 = j /\ size res{1}.`3 = j).
-proc.
-while (={glob F, q, log, sts, c, C} /\ c{1} <= C{1} /\ size log{1} + 1 = c{1} /\ size sts{1} + 1 = c{1}).
-  wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => />. smt(size_cat).
-wp. call (_ : true). wp. skip => />. smt().
-wp. skip => />.
++ wp.
+  call (_ : ={glob F, arg} /\ arg{1}.`2 = j + 1 ==> ={glob F, res} /\ size res{1}.`2 = j /\ size res{1}.`3 = j).
+  + proc.
+    while (={glob F, q, log, sts, c, C} /\ c{1} <= C{1} /\ size log{1} + 1 = c{1} /\ size sts{1} + 1 = c{1}).
+    + wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => />. smt(size_cat).
+    wp. call (_ : true). wp. skip => /#.
+  wp. skip => />.
 
 (* TODO: Life could probably be much easier if we reordered
  * Forker.fst so that the first getState is outside of the while loop. *)
@@ -750,34 +729,38 @@ conseq (_ : _ ==> ={glob F, o} /\
   head witness sts2{1} = s{2} /\
   ((head witness log2{1}).`1, j) = r0{2}
 ).
-move => />.
-smt(nth0_head nth_cat).
++ move => />.
+  smt(nth0_head nth_cat).
 swap {2} [1..2] 6.
 sp.
 wp.
 call (_ : true).
 wp.
-call (_ : true). sim.
+call (_ : true); 1: sim.
 wp.
 case (j = Q - 1).
-rcondf {1} 1. move => &n. skip. smt().
-rcondf {2} 3. move => &n. wp. call (_ : true). skip. smt().
-wp.
-ecall {2} (get_st_preserves_glob (glob F){1}).
-wp.
-call (_ : true).
-skip => />.
++ rcondf {1} 1.
+  + move => &n. skip. smt().
+  rcondf {2} 3.
+  + move => &n. wp. call (_ : true). skip. smt().
+  wp.
+  ecall {2} (get_st_preserves_glob (glob F){1}).
+  wp.
+  call (_ : true).
+  skip => />.
 
 unroll {1} 1. unroll {2} 3.
-rcondt {1} 1. move => &n. skip. smt().
-rcondt {2} 3. move => &n. wp. call (_ : true). skip. smt().
+rcondt {1} 1.
++ move => &n. skip. smt().
+rcondt {2} 3.
++ move => &n. wp. call (_ : true). skip. smt().
 call (_ : true).
 while (
   ={glob F, c} /\ q1{1} = q2{2} /\
   head witness sts0{1} = s{2} /\ sts0{1} <> [] /\
   ((head witness log0{1}).`1, j) = r0{2} /\ log0{1} <> []
 ).
-wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => />. smt().
++ wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => /#.
 wp. call (_ : true). wp. call (_ : true). sim. wp.
 ecall {2} (get_st_preserves_glob (glob F){1}).
 wp.
@@ -818,16 +801,20 @@ local lemma square_sum (n : int) (f : int -> real) :
   bigi predT (fun j => square (f j)) 0 n >= square (bigi predT f 0 n) / n%r.
 proof.
 move => n_ge0 elem_ge0.
-move : (Jensen_fin [0..n - 1] f square (finite_dinter 0 (n - 1)) (dinter_ll 0 (n - 1) _) square_convex). smt().
+move : (Jensen_fin [0..n - 1] f square (finite_dinter 0 (n - 1)) (dinter_ll 0 (n - 1) _) square_convex); 1: smt().
 rewrite ! fin_expE; 1,2: by apply finite_dinter.
 rewrite /(\o).
 rewrite ! (eq_big_perm _ _ (to_seq (support [0..n - 1])) (range 0 n)); 1,2: apply perm_eq_dinter.
-rewrite (eq_big_seq _ (fun (j : int) => f j / n%r)). smt(mem_range dinter1E).
-rewrite (eq_big_seq (fun (x : int) => square (f x) * mu1 [0..n - 1] x) (fun (j : int) => square (f j) / n%r)). smt(mem_range dinter1E).
+rewrite (eq_big_seq _ (fun (j : int) => f j / n%r)).
++ smt(mem_range dinter1E).
+rewrite (eq_big_seq (fun (x : int) => square (f x) * mu1 [0..n - 1] x) (fun (j : int) => square (f j) / n%r)).
++ smt(mem_range dinter1E).
 rewrite - !  mulr_suml.
 pose s := bigi predT f 0 n.
 pose s2 :=  bigi predT (fun (i : int) => square (f i)) 0 n.
-have -> : forall (x y : real), square (x * y) = y * square x * y. move => x y. smt(mulrC expr2).
+have -> : forall (x y : real), square (x * y) = y * square x * y.
++ move => x y.
+  smt(mulrC expr2).
 rewrite ler_pmul2r => /#.
 qed.
 
@@ -841,19 +828,19 @@ rewrite fork_pr.
 move : (pr_split i &m).
 apply ler_trans.
 apply ler_sub; first last.
-apply pr_succ_resp_eq.
++ apply pr_succ_resp_eq.
 rewrite pr_split_sum.
 rewrite pr_succ_sum.
 have : bigi predT (fun (j : int) => Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j] ^ 2) 0 Q <=
   bigi predT (fun (j : int) => Pr[Forker(F).run(i) @ &m : Forker.j1 = j /\ Forker.j2 = j]) 0 Q.
-  apply ler_sum_seq.
-  move => j j_range _.
-  simplify.
-  apply pr_fork_specific. smt(mem_range).
++ apply ler_sum_seq.
+  move => j j_range _ /=.
+  apply pr_fork_specific.
+  smt(mem_range).
 apply ler_trans.
 apply square_sum.
-  smt(Q_pos).
-  smt(ge0_mu).
++ smt(Q_pos).
+smt(ge0_mu).
 qed.
 
 end section.
