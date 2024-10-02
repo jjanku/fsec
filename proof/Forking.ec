@@ -12,7 +12,7 @@ require import AllCore List Distr DInterval Finite StdOrder StdBigop RealFun.
 import RField RealOrder Bigreal BRA.
 require Stopping.
 
-(* TODO: Properly import Rewindable form easycrypt-rewinding. *)
+(* FIXME: Properly import Rewindable form easycrypt-rewinding. *)
 type state_t.
 
 module type Rewindable = {
@@ -20,21 +20,19 @@ module type Rewindable = {
   proc setState(st : state_t) : unit
 }.
 
+(* Auxiliary output type. *)
 type aux_t.
 
 clone import Stopping as ForkStopping with
   type out_t <= int * aux_t.
-(* FIXME: Why is this not imported as well? *)
+(* TODO: Why is this not imported as well? *)
 type out_t = int * aux_t.
 
-(* TODO: Generalize, e.g., to (query_t -> resp_t distr)? *)
-(* TODO: Remove uniformity assumption? *)
 op [lossless uniform] dresp : resp_t distr.
 
-(* Forgetful random oracle. *)
-(* NOTE: The oracle is allowed to behave inconsistently.
- * This is intentional, otherwise we may not be able to
- * repogram the oracle at the forking point. *)
+(* Forgetful random oracle, may respond inconsistently to
+ * repeated queries. This is intentional, otherwise we may not
+ * be able to repogram the oracle at the forking point. *)
 module FRO : Oracle = {
   proc get(q : query_t) : resp_t = {
     var r : resp_t;
@@ -43,7 +41,17 @@ module FRO : Oracle = {
   }
 }.
 
-(* TODO: Does it make sense to generalize somehow? *)
+(* TODO: Generalize to other oracles as well?
+ * Most of the lemmas below need to assume very little about
+ * the used oracle. It should be sufficient to require
+ * rewindability plus some bound on the probability of
+ * a collision, such as:
+ * forall q r &m : Pr[O.get(q) @ &m : res = r] <= bound *)
+
+
+(* TODO: Does it make sense to generalize somehow?
+ * Could we, for example, prove the forking lemma
+ * for any event E such that E => (0 <= j < Q)? *)
 (* NOTE: We index queries from 0 (unlike pen&paper proofs). *)
 op success (j : int) : bool = 0 <= j < Q.
 
@@ -54,17 +62,14 @@ module type Forkable = {
 
 type log_t = query_t * resp_t.
 
-(* TODO: Think about how to define the module so that it is
- * more amenable to proving the forking lemma. *)
 module Forker(F : Forkable) = {
-  (* FIXME: Might be easier to prove invariants about these if we
-   * keep them local. In such case, we would need to return
-   * those in run to be able to refer to the results. *)
+  (* TODO: Might be easier to prove invariants about these if we
+   * keep them local? In such case, we would need to return
+   * those in run to be able to refer to the results.
+   * Check the proofs! *)
   var j1, j2 : int
   var log1, log2 : (query_t * resp_t) list
   var r1, r2 : resp_t
-
-  (* FIXME: log directly to log1 and log2? *)
 
   (* First run of F, with query and state logging. *)
   proc fst(i : in_t) : out_t * (log_t list) * (state_t list) = {
@@ -134,7 +139,8 @@ module Forker(F : Forkable) = {
     (j1, a1) <- o1;
     (q, r1) <- nth witness log1 j1;
 
-    (* FIXME: might be easier to prove things if we fail early. *)
+    (* TODO: Check whether failing early (! success j1)
+     * would simplify some proofs. *)
 
     (* Rewind. *)
     st <- nth witness sts j1;
@@ -176,6 +182,11 @@ call (_ : glob F = gF ==> glob F = gF /\ res = f gF).
 auto.
 qed.
 
+(* STEP 1:
+ * Various lemmas that allow expressing the probability of a
+ * successful fork in terms of probabilities of simpler events.
+ *)
+
 local lemma fork_pr i &m :
   Pr[Forker(F).run(i) @ &m : success res.`1] =
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1 /\ Forker.r1 <> Forker.r2].
@@ -192,7 +203,7 @@ local lemma pr_split i &m :
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1] -
   Pr[Forker(F).run(i) @ &m : success Forker.j1 /\ Forker.r1 = Forker.r2].
 proof.
-(* FIXME: Cannot use occurence selector with rewrite Pr? *)
+(* TODO: Cannot use occurence selector with rewrite Pr? *)
 have -> :
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1] =
   Pr[Forker(F).run(i) @ &m : Forker.j1 = Forker.j2 /\ success Forker.j1 /\ Forker.r1 = Forker.r2] +
@@ -375,6 +386,18 @@ rewrite ind //.
 have -> // : forall j, ((0 <= j < n + 1) /\ ! j < n) <=> (j = n) by smt().
 qed.
 
+(* STEP 2:
+ * At this point, we can focus on the following probability:
+ * Pr[Forker(F).run(i) @ &m : Forker.j1 = j /\ Forker.j2 = j].
+ *
+ * The key observation is that we can replace Forker by a module,
+ * that always forks after the j-th query and the probability
+ * does not change.
+ *
+ * Then, after fixing the forking point, it is easy to transform
+ * the module into the shape required by the rew_with_init lemma.
+ *)
+
 local module SplitForker(F : Forkable) = {
   var bad : bool
 
@@ -410,7 +433,7 @@ local module SplitForker(F : Forkable) = {
   }
 
   (* Same as Forker.snd, but with state recording. *)
-  (* TODO: Consider adding state recording to Forker.snd instead. *)
+  (* TODO: Consider adding state recording to Forker.snd. *)
   proc snd(q : query_t, c : int) : out_t * (log_t list) * (state_t list) = {
     var sts : state_t list;
     var st : state_t;
@@ -574,6 +597,8 @@ call (fst_split_equiv (j + 1)); 1: smt().
 auto => /#.
 qed.
 
+(* TODO: Try to prove this using pRHL, i.e., without using
+ * the syntactic byupto tactic. *)
 local lemma pr_run2_ineq &m i j :
   Pr[SplitForker(F).run1(i, j) @ &m : res.`1 = j /\ res.`2 = j] >=
   Pr[SplitForker(F).run2(i, j) @ &m : res.`1 = j /\ res.`2 = j].
@@ -598,7 +623,8 @@ qed.
 
 local module RewindWrapper(F : Forkable) = {
 
-  (* FIXME: Need to handle bad var in SplitForker. *)
+  (* FIXME: Need to handle bad var in SplitForker and
+   * show that this module is rewindable. *)
   proc getState() : state_t = {
     var st;
     st <@ F.getState();
@@ -648,11 +674,6 @@ local module InitRewinder(F : Forkable) = {
     return (r0, r);
   }
 }.
-
-(* FIXME: Import it properly. *)
-(* lemma rew_with_init &m M i :
- *   Pr[ QQ(A,B).main(i) @ &m : M res.`1 /\ M res.`2 ]
- *     >= Pr[ QQ(A,B).main_run(i) @ &m : M res ] ^ 2. *)
 
 local equiv rewinder_run_equiv :
   InitRewinder(F).main_run ~ SplitForker(F).fst :
@@ -722,8 +743,9 @@ seq 3 4 : (={glob F} /\ C{1} = j + 1 /\ (q0{1}, j) = r0{2} /\
     wp. call (_ : true). wp. skip => /#.
   wp. skip => />.
 
-(* TODO: Life could probably be much easier if we reordered
- * Forker.fst so that the first getState is outside of the while loop. *)
+(* TODO: Try to redefine the Forkers/Runner so that there is no oracle
+ * call after the while loop. This way we could perhaps avoid some of
+ * the case analysis? *)
 inline SplitForker(F).snd.
 conseq (_ : _ ==> ={glob F, o} /\
   head witness sts2{1} = s{2} /\
@@ -769,10 +791,6 @@ skip => />.
 smt(head_cons).
 qed.
 
-(* IMPORTANT: It doesn't seem to be possible to prove this via pRHL.
- * While Forker.fst ~ DetForker.fst; DetForker.snd is true,
- * the probability that the remaining programs terminate differ. *)
-
 local lemma pr_fork_specific &m i j :
   0 <= j < Q =>
   Pr[Forker(F).run(i) @ &m : Forker.j1 = j /\ Forker.j2 = j] >=
@@ -784,8 +802,17 @@ move : (pr_run2_ineq &m i j).
 apply ler_trans.
 rewrite pr_wrapper_run //.
 rewrite pr_wrapper_main //.
-admit. (* Direct application of rew_with_init. *)
+(* FIXME: Apply rew_with_init. *)
+admit.
 qed.
+
+(* STEP 3:
+ * In the previous steps, we disassembled the probability of a fork
+ * into a sum and replaced each summand by a square.
+ *
+ * Now we need to assemble the sum of squares back into a single
+ * event.
+ *)
 
 op square (x : real) = x ^ 2.
 
@@ -818,6 +845,10 @@ have -> : forall (x y : real), square (x * y) = y * square x * y.
 rewrite ler_pmul2r => /#.
 qed.
 
+(* STEP 4:
+ * Put all the pieces together.
+ *)
+
 lemma pr_fork_success &m i :
   let pr_runner_succ = Pr[Runner(F, FRO).run(i) @ &m : success res.`1] in
   let pr_fork_succ   = Pr[Forker(F).run(i) @ &m : success res.`1] in
@@ -845,16 +876,14 @@ qed.
 
 end section.
 
-(* CRITICAL: How can we show that parts of the output
- * are identical in both executions?
+(* FIXME: Need to show that the executions are identical
+ * up to the forking point and thus that certain parts
+ * of the output are equal.
  *
- * Will need to somehow show that if the j-th query
- * is critical, then the final output (the relevant part)
- * does not change afterwards?
+ * Can this be done generically somehow?
  *
  * Use some invariant over states to show that
  * both end states satisfy some property?
  *
  * Could be also helpful to show that the logs from both
  * executions share a prefix? *)
-

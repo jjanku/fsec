@@ -14,11 +14,11 @@ module type Stoppable = {
   proc finish(r : resp_t) : out_t
 }.
 
-(* Max number of queries. *)
+(* Number of queries. *)
 const Q : {int | 1 <= Q} as Q_pos.
 
 (* WLOG, we assume that the module makes _exactly_ Q queries,
- * a run of the module is then defined as follows. *)
+ * a run of the module S with an oracle O is then defined as follows. *)
 module Runner(S : Stoppable, O : Oracle) = {
   proc run(i : in_t) : out_t = {
     var o : out_t;
