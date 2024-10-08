@@ -240,6 +240,25 @@ call (_ : true).
 auto.
 qed.
 
+local hoare fst_log_size :
+  Forker(F).fst : true ==> size res.`2 = Q.
+proof.
+proc; inline.
+call (_ : true).
+wp.
+rnd.
+wp.
+call (_ : true).
+while (c = size log + 1 /\ c <= Q).
++ wp; call (_ : true); wp; rnd; wp; call (_ : true); skip.
+  smt(size_cat).
+wp.
+call (_ : true).
+wp.
+skip => />.
+smt(Q_pos size_cat).
+qed.
+
 (* TODO: Decompose? *)
 local lemma pr_succ_resp_eq &m i :
   Pr[Forker(F).run(i) @ &m : success Forker.j1 /\ Forker.r1 = Forker.r2] <=
@@ -255,22 +274,7 @@ seq 3 : (success Forker.j1)
 last by trivial.
 
 (* #pre ==> size Forker.log1 = Q *)
-+ have fst_log_size : hoare[Forker(F).fst : true ==> size res.`2 = Q].
-  + proc; inline.
-    call (_ : true).
-    wp.
-    rnd.
-    wp.
-    call (_ : true).
-    while (c = size log + 1 /\ c <= Q).
-    + wp; call (_ : true); wp; rnd; wp; call (_ : true); skip.
-      smt(size_cat).
-    wp.
-    call (_ : true).
-    wp.
-    skip => />.
-    smt(Q_pos size_cat).
-  wp.
++ wp.
   call fst_log_size.
   auto.
 
@@ -872,6 +876,46 @@ apply ler_trans.
 apply square_sum.
 + smt(Q_pos).
 smt(ge0_mu).
+qed.
+
+hoare success_log_props :
+  Forker(F).run : true ==>
+  let j = res.`1 in
+  let (q1, r1) = nth witness Forker.log1 j in
+  let (q2, r2) = nth witness Forker.log2 j in
+    success j => take j Forker.log1 = take j Forker.log2 /\ q1 = q2 /\ r1 <> r2.
+proof.
+proc.
+wp.
+have snd_head : forall q0, hoare[
+  Forker(F).snd : q = q0 ==> (head witness res.`2).`1 = q0
+].
++ move => q0.
+  proc.
+  (* TODO: Again, reordering the instructions might help? *)
+  case (Q <= c).
+  + rcondf 2; auto; 1: smt().
+    call (_ : true).
+    wp.
+    call (_ : true) => //.
+    auto.
+  unroll 2; rcondt 2; 1: auto => /#.
+  call (_ : true) => /=.
+  wp.
+  call (_ : true) => //.
+  while ((head witness log).`1 = q0 /\ log <> []).
+  + wp; call (_ : true); wp; call (_ : true) => //.
+    skip.
+    smt(head_cons).
+  wp; call (_ : true); wp; call (_ : true) => //.
+  auto.
+  smt(head_cons).
+ecall (snd_head q).
+call (_ : true).
+wp.
+call fst_log_size.
+skip.
+smt(take_catl take_take size_take nth_cat nth0_head).
 qed.
 
 end section.
