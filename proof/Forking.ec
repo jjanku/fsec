@@ -68,7 +68,7 @@ module Forker(F : Forkable) = {
    * those in run to be able to refer to the results.
    * Check the proofs! *)
   var j1, j2 : int
-  var log1, log2 : (query_t * resp_t) list
+  var log1, log2 : log_t list
   var r1, r2 : resp_t
 
   (* First run of F, with query and state logging. *)
