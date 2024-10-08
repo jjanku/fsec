@@ -652,7 +652,7 @@ local module RewindWrapper(F : Forkable) = {
 
 (* This matches the QQ module in easycrypt-rewinding. *)
 (* FIXME: Clone and instantiate RewWithInit.. *)
-type iat = in_t * int.
+local type iat = in_t * int.
 local module InitRewinder(F : Forkable) = {
   module A = RewindWrapper(F)
   module B = RewindWrapper(F)
@@ -814,9 +814,9 @@ qed.
  * event.
  *)
 
-op square (x : real) = x ^ 2.
+local op square (x : real) = x ^ 2.
 
-lemma square_convex : forall (a b : real), convex square a b.
+local lemma square_convex : forall (a b : real), convex square a b.
 proof.
 (* FIXME: Import the lemma from easycrypt-rewinding. *)
 admit.
