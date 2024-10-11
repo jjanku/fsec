@@ -41,6 +41,22 @@ module FRO : Oracle = {
   }
 }.
 
+type log_t = query_t * resp_t.
+
+(* NOTE: The standard library contains a similar
+ * oracle transformer which logs just the queries.
+ * We need to record responses as well. *)
+module Log(O : Oracle) : Oracle = {
+  var log : log_t list
+
+  proc get(q : query_t) : resp_t = {
+    var r;
+    r <@ O.get(q);
+    log <- log ++ [(q, r)];
+    return r;
+  }
+}.
+
 (* TODO: Generalize to other oracles as well?
  * Most of the lemmas below need to assume very little about
  * the used oracle. It should be sufficient to require
@@ -60,8 +76,6 @@ module type Forkable = {
   include Stoppable
 }.
 
-type log_t = query_t * resp_t.
-
 module Forker(F : Forkable) = {
   (* TODO: Might be easier to prove invariants about these if we
    * keep them local? In such case, we would need to return
@@ -75,14 +89,13 @@ module Forker(F : Forkable) = {
   proc fst(i : in_t) : out_t * (log_t list) * (state_t list) = {
     var sts : state_t list;
     var st : state_t;
-    var log : log_t list;
     var o : out_t;
     var q : query_t;
     var r : resp_t;
     var c : int;
 
     sts <- [];
-    log <- [];
+    Log.log <- [];
 
     q <@ F.init(i);
     c <- 1;
@@ -90,19 +103,17 @@ module Forker(F : Forkable) = {
     while (c < Q) {
       st <@ F.getState();
       sts <- sts ++ [st];
-      r <@ FRO.get(q);
-      log <- log ++ [(q, r)];
+      r <@ Log(FRO).get(q);
       q <@ F.continue(r);
       c <- c + 1;
     }
 
     st <@ F.getState();
     sts <- sts ++ [st];
-    r <@ FRO.get(q);
-    log <- log ++ [(q, r)];
+    r <@ Log(FRO).get(q);
     o <@ F.finish(r);
 
-    return (o, log, sts);
+    return (o, Log.log, sts);
   }
 
   (* Second partial run of F, with query logging. *)
@@ -111,20 +122,18 @@ module Forker(F : Forkable) = {
     var o : out_t;
     var r : resp_t;
 
-    log <- [];
+    Log.log <- [];
 
     while (c < Q) {
-      r <@ FRO.get(q);
-      log <- log ++ [(q, r)];
+      r <@ Log(FRO).get(q);
       q <@ F.continue(r);
       c <- c + 1;
     }
 
-    r <@ FRO.get(q);
-    log <- log ++ [(q, r)];
+    r <@ Log(FRO).get(q);
     o <@ F.finish(r);
 
-    return (o, log);
+    return (o, Log.log);
   }
 
   proc run(i : in_t) : int * aux_t * aux_t = {
@@ -160,7 +169,7 @@ module Forker(F : Forkable) = {
 
 section PROOF.
 
-declare module F <: Forkable {-FRO, -Runner, -Forker}.
+declare module F <: Forkable {-FRO, -Log, -Runner, -Forker}.
 
 (* Coppied from easycrypt-rewinding. *)
 declare axiom F_rewindable :
@@ -193,6 +202,35 @@ qed.
 local lemma set_st_ll : islossless F.setState.
 proof.
 smt(F_rewindable).
+qed.
+
+local equiv oracle_log_equiv (O <: Oracle) :
+  O.get ~ Log(O).get : ={glob O, arg} ==> ={glob O, res}.
+proof.
+proc *.
+inline.
+sim.
+qed.
+
+(* FIXME: Can we avoid this? *)
+local equiv log_oracle_equiv (O <: Oracle) :
+  Log(O).get ~ O.get : ={glob O, arg} ==> ={glob O, res}.
+proof.
+symmetry. conseq (oracle_log_equiv O) => //.
+qed.
+
+local equiv runner_log_equiv :
+  Runner(F, FRO).run ~ Runner(F, Log(FRO)).run :
+  ={glob F, arg} ==> ={glob F, res}.
+proof.
+proc.
+call (_ : true).
+call (oracle_log_equiv FRO).
+while (={glob F, c, q}).
++ rewrite equiv [{2} 1 - (oracle_log_equiv FRO)].
+  sim.
+conseq (_ : _ ==> ={glob F, c, q}) => //.
+sim.
 qed.
 
 (* STEP 1:
@@ -236,7 +274,7 @@ proof.
 proc.
 call (_ : true).
 wp.
-call (_ : true); 1: sim.
+call (log_oracle_equiv FRO).
 wp.
 conseq (_ : _ ==> ={q, glob F}) => //.
 ecall {1} (get_st_preserves_glob (glob F){1}).
@@ -244,7 +282,7 @@ while (={q, c, glob F}).
 + wp.
   call (_ : true).
   wp.
-  call (_ : true); 1: sim.
+  call (log_oracle_equiv FRO).
   wp.
   ecall {1} (get_st_preserves_glob (glob F){1}).
   auto.
@@ -262,7 +300,7 @@ wp.
 rnd.
 wp.
 call (_ : true).
-while (c = size log + 1 /\ c <= Q).
+while (c = size Log.log + 1 /\ c <= Q).
 + wp; call (_ : true); wp; rnd; wp; call (_ : true); skip.
   smt(size_cat).
 wp.
@@ -302,10 +340,10 @@ last by trivial.
 (* success Forker.j1 ==> #post *)
 + inline.
   wp.
-  conseq (_ : _ ==> success Forker.j1 /\ Forker.r1 = (head witness log).`2).
+  conseq (_ : _ ==> success Forker.j1 /\ Forker.r1 = (head witness Log.log).`2).
   + smt(nth_cat size_takel nth0_head).
   (* FIXME: This is rather painful. Call doesn't work in pHL? *)
-  seq 10 : (success Forker.j1 /\ Forker.r1 = (head witness log).`2)
+  seq 12 : (success Forker.j1 /\ Forker.r1 = (head witness Log.log).`2)
     inv_supp_size 1%r
     _ 0%r;
   1,3,5: trivial; first last.
@@ -329,10 +367,10 @@ last by trivial.
   (* case: Forker.j1 <> Q *)
   unroll 6; rcondt 6.
   + wp; call (_ : true); wp; skip => /#.
-  seq 9 : (success Forker.j1 /\ Forker.r1 = (head witness log).`2)
+  seq 11 : (success Forker.j1 /\ Forker.r1 = (head witness Log.log).`2)
     inv_supp_size 1%r
     _ 0%r
-    (log <> []);
+    (Log.log <> []);
   3,5: trivial.
   + wp; rnd; wp; call (_ : true); wp; skip => /#.
   + wp; rnd; wp; call (_ : true); wp; skip => /=.
@@ -341,7 +379,7 @@ last by trivial.
     apply mu_dresp_eq.
   hoare.
   rnd; wp.
-  while (log <> [] /\ ! (success Forker.j1 /\ Forker.r1 = (head witness log).`2)).
+  while (Log.log <> [] /\ ! (success Forker.j1 /\ Forker.r1 = (head witness Log.log).`2)).
   + wp; call (_ : true); wp; rnd; wp; skip => /#.
   wp; call (_ : true); skip => /#.
 
@@ -422,14 +460,13 @@ local module SplitForker(F : Forkable) = {
   proc fst_partial(i : in_t, C : int) : query_t * (log_t list) * (state_t list) = {
     var sts : state_t list;
     var st : state_t;
-    var log : log_t list;
     var o : out_t;
     var q : query_t;
     var r : resp_t;
     var c : int;
 
     sts <- [];
-    log <- [];
+    Log.log <- [];
 
     q <@ F.init(i);
     c <- 1;
@@ -438,15 +475,14 @@ local module SplitForker(F : Forkable) = {
     while (c < C) {
       st <@ F.getState();
       sts <- sts ++ [st];
-      r <@ FRO.get(q);
-      log <- log ++ [(q, r)];
+      r <@ Log(FRO).get(q);
       q <@ F.continue(r);
       c <- c + 1;
     }
 
     (* CHANGE: Finish removed. *)
 
-    return (q, log, sts);
+    return (q, Log.log, sts);
   }
 
   (* Same as Forker.snd, but with state recording. *)
@@ -454,29 +490,26 @@ local module SplitForker(F : Forkable) = {
   proc snd(q : query_t, c : int) : out_t * (log_t list) * (state_t list) = {
     var sts : state_t list;
     var st : state_t;
-    var log : log_t list;
     var o : out_t;
     var r : resp_t;
 
     sts <- [];
-    log <- [];
+    Log.log <- [];
 
     while (c < Q) {
       st <@ F.getState();
       sts <- sts ++ [st];
-      r <@ FRO.get(q);
-      log <- log ++ [(q, r)];
+      r <@ Log(FRO).get(q);
       q <@ F.continue(r);
       c <- c + 1;
     }
 
     st <@ F.getState();
     sts <- sts ++ [st];
-    r <@ FRO.get(q);
-    log <- log ++ [(q, r)];
+    r <@ Log(FRO).get(q);
     o <@ F.finish(r);
 
-    return (o, log, sts);
+    return (o, Log.log, sts);
   }
 
   proc fst(i : in_t, C : int) : out_t * (log_t list) * (state_t list) = {
@@ -564,22 +597,22 @@ local lemma fst_split_equiv C :
 proof.
 move => C_range.
 proc.
-inline SplitForker(F).fst_partial SplitForker(F).snd.
+inline SplitForker(F).fst_partial SplitForker(F).snd Log.
 wp.
 call (_ : true).
 wp.
-call (_ : true); auto.
+call (_ : true); 1: auto.
 wp.
 call (_ : true).
 splitwhile{1} 5 : c < C.
-conseq (_ : _ ==> ={glob F} /\ q{1} = q1{2} /\ log{1} = log1{2} ++ log3{2} /\ sts{1} = sts1{2} ++ sts3{2}) => />.
+conseq (_ : _ ==> ={glob F} /\ q{1} = q1{2} /\ Log.log{1} = log1{2} ++ Log.log{2} /\ sts{1} = sts1{2} ++ sts3{2}) => />.
 + smt(catA).
-while (={glob F} /\ q{1} = q1{2} /\ log{1} = log1{2} ++ log3{2} /\ sts{1} = sts1{2} ++ sts3{2} /\ c{1} = c0{2}).
+while (={glob F} /\ q{1} = q1{2} /\ Log.log{1} = log1{2} ++ Log.log{2} /\ sts{1} = sts1{2} ++ sts3{2} /\ c{1} = c0{2}).
 + wp. call (_ : true). wp. call (_ : true). auto. wp. call (_ : true). skip => />. smt(catA).
 wp.
-conseq (_ : _ ==> ={glob F} /\ q{1} = q0{2} /\ log{1} = log0{2} /\ sts{1} = sts0{2} /\ c{1} = C) => />.
+conseq (_ : _ ==> ={glob F} /\ q{1} = q0{2} /\ Log.log{1} = Log.log{2} /\ sts{1} = sts0{2} /\ c{1} = C) => />.
 + smt(cats0).
-while (={glob F} /\ q{1} = q0{2} /\ log{1} = log0{2} /\ sts{1} = sts0{2} /\ c{1} = c{2} /\ c{1} <= C /\ C0{2} = C).
+while (={glob F} /\ q{1} = q0{2} /\ Log.log{1} = Log.log{2} /\ sts{1} = sts0{2} /\ c{1} = c{2} /\ c{1} <= C /\ C0{2} = C).
 + wp. call (_ : true). wp. call (_ : true). auto. wp. call (_ : true). skip => />. smt().
 wp.
 call (_ : true).
@@ -593,7 +626,7 @@ proof.
 proc => /=.
 sim.
 ecall {2} (get_st_preserves_glob (glob F){2}).
-while (={q, log, glob F, c}).
+while (={q, Log.log, glob F, c}).
 + sim.
   ecall {2} (get_st_preserves_glob (glob F){2}).
   auto.
@@ -783,15 +816,15 @@ seq 3 4 : (={glob F} /\ C{1} = j + 1 /\ (q0{1}, j) = r0{2} /\
 + wp.
   call (_ : ={glob F, arg} /\ arg{1}.`2 = j + 1 ==> ={glob F, res} /\ size res{1}.`2 = j /\ size res{1}.`3 = j).
   + proc.
-    while (={glob F, q, log, sts, c, C} /\ c{1} <= C{1} /\ size log{1} + 1 = c{1} /\ size sts{1} + 1 = c{1}).
-    + wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => />. smt(size_cat).
+    while (={glob F, q, Log.log, sts, c, C} /\ c{1} <= C{1} /\ size Log.log{1} + 1 = c{1} /\ size sts{1} + 1 = c{1}).
+    + wp. call (_ : true). inline. wp. rnd. wp. call (_ : true). skip => />. smt(size_cat).
     wp. call (_ : true). wp. skip => /#.
   wp. skip => />.
 
 (* TODO: Try to redefine the Forkers/Runner so that there is no oracle
  * call after the while loop. This way we could perhaps avoid some of
  * the case analysis? *)
-inline SplitForker(F).snd.
+inline SplitForker(F).snd Log.
 conseq (_ : _ ==> ={glob F, o} /\
   head witness sts2{1} = s{2} /\
   ((head witness log2{1}).`1, j) = r0{2}
@@ -825,7 +858,7 @@ call (_ : true).
 while (
   ={glob F, c} /\ q1{1} = q2{2} /\
   head witness sts0{1} = s{2} /\ sts0{1} <> [] /\
-  ((head witness log0{1}).`1, j) = r0{2} /\ log0{1} <> []
+  ((head witness Log.log{1}).`1, j) = r0{2} /\ Log.log{1} <> []
 ).
 + wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => /#.
 wp. call (_ : true). wp. call (_ : true). sim. wp.
@@ -941,7 +974,7 @@ have snd_head : forall q0, hoare[
   Forker(F).snd : q = q0 ==> (head witness res.`2).`1 = q0
 ].
 + move => q0.
-  proc.
+  proc; inline Log.
   (* TODO: Again, reordering the instructions might help? *)
   case (Q <= c).
   + rcondf 2; auto; 1: smt().
@@ -953,8 +986,9 @@ have snd_head : forall q0, hoare[
   call (_ : true) => /=.
   wp.
   call (_ : true) => //.
-  while ((head witness log).`1 = q0 /\ log <> []).
-  + wp; call (_ : true); wp; call (_ : true) => //.
+  wp.
+  while ((head witness Log.log).`1 = q0 /\ Log.log <> []).
+  + wp; call (_ : true); wp; call (_ : true) => //; wp.
     skip.
     smt(head_cons).
   wp; call (_ : true); wp; call (_ : true) => //.
