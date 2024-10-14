@@ -267,27 +267,45 @@ have ABC_le_BC :
 smt().
 qed.
 
+local equiv fst_run_log_equiv log0 :
+  Forker(F).fst ~ Runner(F, Log(FRO)).run :
+  ={arg, glob F} /\ Log.log{2} = log0 ==>
+  ={glob F} /\ res{1}.`1 = res{2} /\ log0 ++ res{1}.`2 = Log.log{2}.
+proof.
+proc => /=.
+call (_ : true).
+have log_equiv : equiv[
+  Log(FRO).get ~ Log(FRO).get :
+  ={arg} /\ log0 ++ Log.log{1} = Log.log{2} ==>
+  ={res} /\ log0 ++ Log.log{1} = Log.log{2}
+].
++ proc; inline.
+  wp; rnd; wp; skip.
+  smt(catA).
+call log_equiv.
+wp.
+ecall {1} (get_st_preserves_glob (glob F){1}).
+while (={q, c, glob F} /\ log0 ++ Log.log{1} = Log.log{2}).
++ wp.
+  call (_ : true).
+  call log_equiv.
+  wp.
+  ecall {1} (get_st_preserves_glob (glob F){1}).
+  auto => />.
+wp.
+call (_ : true).
+auto => />.
+smt(cats0).
+qed.
+
 local equiv fst_run_equiv :
   Forker(F).fst ~ Runner(F, FRO).run :
   ={arg, glob F} ==> ={glob F} /\ res{1}.`1 = res{2}.
 proof.
-proc.
-call (_ : true).
-wp.
-call (log_oracle_equiv FRO).
-wp.
-conseq (_ : _ ==> ={q, glob F}) => //.
-ecall {1} (get_st_preserves_glob (glob F){1}).
-while (={q, c, glob F}).
-+ wp.
-  call (_ : true).
-  wp.
-  call (log_oracle_equiv FRO).
-  wp.
-  ecall {1} (get_st_preserves_glob (glob F){1}).
-  auto.
-wp.
-call (_ : true).
+proc *.
+rewrite equiv [{2} 1 runner_log_equiv].
+exlim (Log.log{2}) => log0.
+call (fst_run_log_equiv log0).
 auto.
 qed.
 
@@ -528,10 +546,10 @@ local module SplitForker(F : Forkable) = {
 
   (* Forker.run with bad event logging, with some unnecessary bits removed
    * (e.g., we don't care about aux output nor the two responses to q) *)
-  proc run1(i : in_t, j : int) : int * int * aux_t * aux_t = {
+  proc run1(i : in_t, j : int) : int * int * aux_t * aux_t * (log_t list) * (log_t list) = {
     var sts1, _sts2 : state_t list;
     var st : state_t;
-    var log1, _log2 : log_t list;
+    var log1, log2 : log_t list;
     var o1, o2 : out_t;
     var j1, j1', j2 : int;
     var a1, a2 : aux_t;
@@ -550,17 +568,18 @@ local module SplitForker(F : Forkable) = {
     st <- nth witness sts1 j1';
     F.setState(st);
 
-    (o2, _log2, _sts2) <@ snd(q, j1' + 1);
+    (o2, log2, _sts2) <@ snd(q, j1' + 1);
     (j2, a2) <- o2;
+    log2 <- (take j1' log1) ++ log2;
 
-    return (j1, j2, a1, a2);
+    return (j1, j2, a1, a2, log1, log2);
   }
 
   (* Same as run1, except we always rewind to the j-th query. *)
-  proc run2(i : in_t, j : int) : int * int * aux_t * aux_t = {
+  proc run2(i : in_t, j : int) : int * int * aux_t * aux_t * (log_t list) * (log_t list) = {
     var sts1, _sts2 : state_t list;
     var st : state_t;
-    var log1, _log2 : log_t list;
+    var log1, log2 : log_t list;
     var o1, o2 : out_t;
     var j1, j1', j2 : int;
     var a1, a2 : aux_t;
@@ -581,10 +600,11 @@ local module SplitForker(F : Forkable) = {
     st <- nth witness sts1 j1';
     F.setState(st);
 
-    (o2, _log2, _sts2) <@ snd(q, j1' + 1);
+    (o2, log2, _sts2) <@ snd(q, j1' + 1);
     (j2, a2) <- o2;
+    log2 <- (take j1' log1) ++ log2;
 
-    return (j1, j2, a1, a2);
+    return (j1, j2, a1, a2, log1, log2);
   }
 }.
 
@@ -639,7 +659,8 @@ local lemma run_run1_equiv j :
     Forker(F).run ~ SplitForker(F).run1 :
     ={glob F} /\ (arg{1}, j) = arg{2} ==>
     ={glob F} /\ Forker.j1{1} = res{2}.`1 /\ Forker.j2{1} = res{2}.`2 /\
-      res{1}.`2 = res{2}.`3 /\ res{1}.`3 = res{2}.`4
+      res{1}.`2 = res{2}.`3 /\ res{1}.`3 = res{2}.`4 /\
+      Forker.log1{1} = res{2}.`5 /\ Forker.log2{1} = res{2}.`6
   ].
 proof.
 move => j_range.
@@ -700,18 +721,19 @@ local module RewindWrapper(F : Forkable) = {
     F.setState(st);
   }
 
-  proc init(ij : in_t * int) : query_t * int = {
+  proc init(ij : in_t * int) : query_t * int * (log_t list) = {
     var i, j, q, log, sts;
     (i, j) <- ij;
     (q, log, sts) <@ SplitForker(F).fst_partial(i, j + 1);
-    return (q, j);
+    return (q, j, log);
   }
 
-  proc run(qj : query_t * int) : out_t = {
-    var q, o, log, sts, j;
-    (q, j) <- qj;
-    (o, log, sts) <@ SplitForker(F).snd(q, j + 1);
-    return o;
+  proc run(q_j_log : query_t * int * (log_t list)) : out_t * (log_t list) = {
+    var q, o, log, log', sts, j;
+    (q, j, log) <- q_j_log;
+    (o, log', sts) <@ SplitForker(F).snd(q, j + 1);
+    log <- log ++ log';
+    return (o, log);
   }
 }.
 
@@ -743,7 +765,7 @@ local module InitRewinder(F : Forkable) = {
 local equiv rewinder_run_equiv :
   InitRewinder(F).main_run ~ SplitForker(F).fst :
   ={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 + 1 = arg{2}.`2  ==>
-  ={glob F} /\ res{1}.`2 = res{2}.`1.
+  ={glob F} /\ res{1}.`2 = (res{2}.`1, res{2}.`2).
 proof.
 proc => /=.
 inline InitRewinder.
@@ -754,24 +776,25 @@ call (_ : ={glob F}); 1: sim.
 auto => />.
 qed.
 
-local lemma main_run_equiv j :
+local lemma main_run_equiv j log0 :
   0 <= j < Q =>
   equiv[
-    Runner(F, FRO).run ~ InitRewinder(F).main_run :
-    ={glob F} /\ (arg{1}, j) = arg{2} ==> res{1} = res{2}.`2
+    Runner(F, Log(FRO)).run ~ InitRewinder(F).main_run :
+    ={glob F} /\ (arg{1}, j) = arg{2} /\ Log.log{1} = log0 ==>
+    res{1} = res{2}.`2.`1 /\ Log.log{1} = log0 ++ res{2}.`2.`2
   ].
 proof.
 move => j_range.
 transitivity
   Forker(F).fst
-  (={glob F, arg} ==> res{1} = res{2}.`1)
-  (={glob F} /\ (arg{1}, j) = arg{2} ==> res{1}.`1 = res{2}.`2);
+  (={glob F, arg} /\ Log.log{1} = log0 ==> res{1} = res{2}.`1 /\ Log.log{1} = log0 ++ res{2}.`2)
+  (={glob F} /\ (arg{1}, j) = arg{2} ==> res{1}.`1 = res{2}.`2.`1 /\ res{1}.`2 = res{2}.`2.`2);
 1,2: smt().
-+ by symmetry; conseq fst_run_equiv.
++ by symmetry; conseq (fst_run_log_equiv log0).
 transitivity
   SplitForker(F).fst
   (={glob F} /\ (arg{1}, j + 1) = arg{2} ==> ={res})
-  (={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 = arg{2}.`2 + 1 ==> res{1}.`1 = res{2}.`2).
+  (={glob F} /\ arg{1}.`1 = arg{2}.`1 /\ arg{1}.`2 = arg{2}.`2 + 1 ==> res{1}.`1 = res{2}.`2.`1 /\ res{1}.`2 = res{2}.`2.`2).
 + move => &1 &2 rel.
   exists (glob F){1} (arg{1}, j + 1) => /#.
 + smt().
@@ -782,10 +805,15 @@ qed.
 local lemma pr_wrapper_run &m i j :
   0 <= j < Q =>
   Pr[Runner(F, FRO).run(i) @ &m : res.`1 = j] =
-  Pr[InitRewinder(F).main_run((i, j)) @ &m : res.`2.`1 = j].
+  Pr[InitRewinder(F).main_run((i, j)) @ &m : res.`2.`1.`1 = j].
 proof.
 move => j_range.
-byequiv (main_run_equiv j j_range) => //.
+byequiv => //.
+proc *.
+rewrite equiv [{1} 1 runner_log_equiv].
+exlim (Log.log{1}) => log0.
+call (main_run_equiv j log0).
+auto.
 qed.
 
 local lemma init_rew_split_equiv j :
@@ -794,8 +822,8 @@ local lemma init_rew_split_equiv j :
     SplitForker(F).run2 ~ InitRewinder(F).main :
     ={glob F, arg} /\ arg{1}.`2 = j ==>
     (* FIXME: Consider changing the return type of SplitForker.run2 *)
-    let (j1, j2, a1, a2) = res{1} in
-    (j1, a1) = res{2}.`1.`2 /\ (j2, a2) = res{2}.`2.`2
+    let (j1, j2, a1, a2, log1, log2) = res{1} in
+    ((j1, a1), log1) = res{2}.`1.`2 /\ ((j2, a2), log2) = res{2}.`2.`2
   ].
 proof.
 move => j_range.
@@ -809,9 +837,10 @@ wp => /=.
 conseq (_ : _ ==>
   ={glob F, o} /\
   nth witness (sts10{1} ++ sts2{1}) j = s{2} /\
-  ((nth witness (log10{1} ++ log2{1}) j).`1, j) = r0{2}
+  ((nth witness (log10{1} ++ log20{1}) j).`1, j, take j (log10{1} ++ log20{1})) = r0{2} /\
+  log10{1} = log0{2} /\ log20{1} = log'{2}
 ); 1: smt().
-seq 3 4 : (={glob F} /\ C{1} = j + 1 /\ (q0{1}, j) = r0{2} /\
+seq 3 4 : (={glob F} /\ C{1} = j + 1 /\ (q0{1}, j, log10{1}) = r0{2} /\
   size log10{1} = j /\ size sts10{1} = j).
 + wp.
   call (_ : ={glob F, arg} /\ arg{1}.`2 = j + 1 ==> ={glob F, res} /\ size res{1}.`2 = j /\ size res{1}.`3 = j).
@@ -827,10 +856,11 @@ seq 3 4 : (={glob F} /\ C{1} = j + 1 /\ (q0{1}, j) = r0{2} /\
 inline SplitForker(F).snd Log.
 conseq (_ : _ ==> ={glob F, o} /\
   head witness sts2{1} = s{2} /\
-  ((head witness log2{1}).`1, j) = r0{2}
+  ((head witness log20{1}).`1, j, log10{1}) = r0{2} /\
+  log10{1} = log0{2} /\ log20{1} = log'{2}
 ).
 + move => />.
-  smt(nth0_head nth_cat).
+  smt(nth0_head nth_cat take_size_cat).
 swap {2} [1..2] 6.
 sp.
 wp.
@@ -856,9 +886,9 @@ rcondt {2} 3.
 + move => &n. wp. call (_ : true). skip. smt().
 call (_ : true).
 while (
-  ={glob F, c} /\ q1{1} = q2{2} /\
+  ={glob F, c, Log.log} /\ q1{1} = q2{2} /\
   head witness sts0{1} = s{2} /\ sts0{1} <> [] /\
-  ((head witness Log.log{1}).`1, j) = r0{2} /\ Log.log{1} <> []
+  ((head witness Log.log{1}).`1, j, log0{2}) = r0{2} /\ Log.log{1} <> []
 ).
 + wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => /#.
 wp. call (_ : true). wp. call (_ : true). sim. wp.
@@ -872,7 +902,7 @@ qed.
 local lemma pr_wrapper_main &m i j :
   0 <= j < Q =>
   Pr[SplitForker(F).run2(i, j) @ &m : res.`1 = j /\ res.`2 = j] =
-  Pr[InitRewinder(F).main((i, j)) @ &m : res.`1.`2.`1 = j /\ res.`2.`2.`1 = j].
+  Pr[InitRewinder(F).main((i, j)) @ &m : res.`1.`2.`1.`1 = j /\ res.`2.`2.`1.`1 = j].
 proof.
 move => j_range.
 byequiv (init_rew_split_equiv j j_range) => /#.
@@ -1009,38 +1039,38 @@ section PROPERTY_TRANSFER.
  * the two results produced by Forker (provided that it succeeds). *)
 
 declare pred P_in : in_t.
-declare pred P_out : out_t.
+declare pred P_out : out_t * (log_t list).
 
 declare axiom run_prop :
-  hoare[Runner(F, FRO).run : P_in i ==> P_out res].
+  hoare[Runner(F, Log(FRO)).run : P_in i /\ Log.log = [] ==> P_out (res, Log.log)].
 
 declare axiom F_continue_ll : islossless F.continue.
 declare axiom F_finish_ll : islossless F.finish.
 
 local hoare fst_run_prop :
-  Forker(F).fst : P_in i ==> P_out res.`1.
+  Forker(F).fst : P_in i ==> P_out (res.`1, res.`2).
 proof.
-conseq fst_run_equiv (_ : P_in i ==> P_out res) => //.
+conseq (fst_run_log_equiv []) (_ : P_in i /\ Log.log = [] ==> P_out (res, Log.log)) => //.
 + smt().
 apply run_prop.
 qed.
 
 local lemma snd_run_prop_split :
-  (forall j, 0 <= j < Q => hoare[Forker(F).run : P_in i ==> res.`1 = j => P_out (res.`1, res.`3)]) =>
-  hoare[Forker(F).run : P_in i ==> success res.`1 => P_out (res.`1, res.`3)].
+  (forall j, 0 <= j < Q => hoare[Forker(F).run : P_in i ==> res.`1 = j => P_out ((res.`1, res.`3), Forker.log2)]) =>
+  hoare[Forker(F).run : P_in i ==> success res.`1 => P_out ((res.`1, res.`3), Forker.log2)].
 proof.
 have snd_forall :
   forall n, 0 <= n =>
-  (forall j, 0 <= j < n => hoare[Forker(F).run : P_in i ==> res.`1 = j => P_out (res.`1, res.`3)]) =>
-  hoare[Forker(F).run : P_in i ==> 0 <= res.`1 < n => P_out (res.`1, res.`3)].
+  (forall j, 0 <= j < n => hoare[Forker(F).run : P_in i ==> res.`1 = j => P_out ((res.`1, res.`3), Forker.log2)]) =>
+  hoare[Forker(F).run : P_in i ==> 0 <= res.`1 < n => P_out ((res.`1, res.`3), Forker.log2)].
 + apply ge0ind => /=.
   + smt().
   + move => _.
     by conseq (_ : _ ==> true); 1: smt().
   move => n n_ge0 ind _ ass.
   conseq
-    (_ : _ ==> 0 <= res.`1 < n => P_out (res.`1, res.`3))
-    (_ : _ ==>      res.`1 = n => P_out (res.`1, res.`3)) => //.
+    (_ : _ ==> 0 <= res.`1 < n => P_out ((res.`1, res.`3), Forker.log2))
+    (_ : _ ==>      res.`1 = n => P_out ((res.`1, res.`3), Forker.log2)) => //.
   + smt().
   + apply (ass n).
     smt().
@@ -1127,22 +1157,22 @@ qed.
 
 local lemma snd_run_prop_single j0 :
   0 <= j0 < Q =>
-  hoare[Forker(F).run : P_in arg ==> res.`1 = j0 => P_out (res.`1, res.`3)].
+  hoare[Forker(F).run : P_in arg ==> res.`1 = j0 => P_out ((res.`1, res.`3), Forker.log2)].
 proof.
 move => j0_range.
 conseq
-  (_ : P_in arg ==> Forker.j1 = j0 => P_out (Forker.j2, res.`3))
+  (_ : P_in arg ==> Forker.j1 = j0 => P_out ((Forker.j2, res.`3), Forker.log2))
   (_ : _ ==> res.`1 = j0 => Forker.j1 = j0 /\ Forker.j2 = j0) => //.
 + smt().
 + proc.
   seq 9 : true => //.
   auto => /#.
 conseq (run_run1_equiv j0 j0_range)
-  (_ : P_in arg.`1 /\ arg.`2 = j0 ==> res.`1 = j0 => P_out (res.`2, res.`4)).
+  (_ : P_in arg.`1 /\ arg.`2 = j0 ==> res.`1 = j0 => P_out ((res.`2, res.`4), res.`6)).
 + smt().
 + smt().
 conseq (run1_run2_equiv j0 j0_range)
-  (_ : P_in arg.`1 /\ arg.`2 = j0 ==> P_out (res.`2, res.`4)).
+  (_ : P_in arg.`1 /\ arg.`2 = j0 ==> P_out ((res.`2, res.`4), res.`6)).
 + smt().
 + smt().
 conseq (init_rew_split_equiv j0 j0_range)
@@ -1153,23 +1183,30 @@ conseq init_rew_snd_equiv (_ : P_in arg.`1 /\ arg.`2 = j0 ==> P_out res.`2).
 + smt().
 + smt().
 have main_run_equiv_rev :
-  equiv[InitRewinder(F).main_run ~ Runner(F, FRO).run :
-        ={glob F} /\ arg{1} = (arg{2}, j0) ==> res{1}.`2 = res{2}].
-+ by symmetry; conseq (main_run_equiv j0 j0_range).
-conseq main_run_equiv_rev run_prop.
+  forall log0,
+  equiv[
+    InitRewinder(F).main_run ~ Runner(F, Log(FRO)).run :
+    ={glob F} /\ arg{1} = (arg{2}, j0) /\ Log.log{2} = log0 ==>
+    res{1}.`2.`1 = res{2} /\ log0 ++ res{1}.`2.`2 = Log.log{2}
+  ].
++ by move => log0; symmetry; conseq (main_run_equiv j0 log0 j0_range).
+conseq (main_run_equiv_rev []) run_prop.
 + smt().
 + smt().
 qed.
 
-lemma property_transfer :
-  hoare[Forker(F).run : P_in i ==> let (j, a1, a2) = res in success j => P_out (j, a1) /\ P_out (j, a2)].
+hoare property_transfer :
+  Forker(F).run :
+  P_in i ==>
+  let (j, a1, a2) = res in success j =>
+    P_out ((j, a1), Forker.log1) /\ P_out ((j, a2), Forker.log2).
 proof.
 conseq
-  (_ : _ ==> success res.`1 => P_out (res.`1, res.`3))
-  (_ : _ ==> success res.`1 => P_out (res.`1, res.`2)) => //.
+  (_ : _ ==> success res.`1 => P_out ((res.`1, res.`3), Forker.log2))
+  (_ : _ ==> success res.`1 => P_out ((res.`1, res.`2), Forker.log1)) => //.
 + smt().
 + proc => /=.
-  seq 9 : (P_out (Forker.j1, a1)); first last.
+  seq 9 : (P_out ((Forker.j1, a1), Forker.log1)); first last.
   + auto => /#.
   wp; call (_ : true) => //; call (_ : true); wp.
   call fst_run_prop.
@@ -1181,3 +1218,4 @@ qed.
 end section PROPERTY_TRANSFER.
 
 end section PROOF.
+
