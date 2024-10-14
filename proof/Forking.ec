@@ -178,6 +178,9 @@ declare axiom F_rewindable :
   (forall &m st (x: glob F), st = f x => Pr[F.setState(st) @ &m : glob F = x] = 1%r) /\
   islossless F.setState.
 
+declare axiom F_continue_ll : islossless F.continue.
+declare axiom F_finish_ll : islossless F.finish.
+
 local phoare get_st_preserves_glob (gF : glob F):
   [F.getState : (glob F) = gF ==> (glob F) = gF] = 1%r.
 proof.
@@ -1044,9 +1047,6 @@ declare pred P_out : out_t * (log_t list).
 declare axiom run_prop :
   hoare[Runner(F, Log(FRO)).run : P_in i /\ Log.log = [] ==> P_out (res, Log.log)].
 
-declare axiom F_continue_ll : islossless F.continue.
-declare axiom F_finish_ll : islossless F.finish.
-
 local hoare fst_run_prop :
   Forker(F).fst : P_in i ==> P_out (res.`1, res.`2).
 proof.
@@ -1216,6 +1216,59 @@ apply snd_run_prop_single.
 qed.
 
 end section PROPERTY_TRANSFER.
+
+section CONVENIENCE.
+
+(* Here we just combine all results we have into a (hopefully)
+ * more usable package. *)
+
+declare pred P_in : in_t.
+declare pred P_out : out_t * (log_t list).
+
+declare axiom success_impl :
+  hoare[Runner(F, Log(FRO)).run : P_in i /\ Log.log = [] ==> success res.`1 => P_out (res, Log.log)].
+
+declare op pr_success : real.
+
+declare axiom success_eq :
+  phoare[Runner(F, FRO).run : P_in i ==> success res.`1] = pr_success.
+
+op pr_collision = 1%r / (size (to_seq (support dresp)))%r.
+
+lemma forking_lemma :
+  phoare[
+    Forker(F).run :
+    P_in arg ==>
+    let (j, a1, a2) = res in
+    let log1 = Forker.log1 in
+    let log2 = Forker.log2 in
+    let (q1, r1) = nth witness log1 j in
+    let (q2, r2) = nth witness log2 j in
+    success j /\
+    take j log1 = take j log2 /\ q1 = q2 /\ r1 <> r2 /\
+    P_out ((j, a1), log1) /\ P_out ((j, a2), log2)
+  ] >= (pr_success ^ 2 / Q%r - pr_success * pr_collision).
+proof.
+conseq (_ : _ ==> success res.`1) (_ : _ ==>
+  success res.`1 =>
+    let (j, a1, a2) = res in
+    let log1 = Forker.log1 in
+    let log2 = Forker.log2 in
+    let (q1, r1) = nth witness log1 j in
+    let (q2, r2) = nth witness log2 j in
+    take j log1 = take j log2 /\
+    q1 = q2 /\ r1 <> r2 /\ P_out ((j, a1), log1) /\ P_out ((j, a2), log2)).
++ trivial.
++ smt().
++ pose P_out' := fun (ol : out_t * (log_t list)) => success ol.`1.`1 => P_out ol.
+  conseq success_log_props (property_transfer P_in P_out' success_impl) => /#.
+bypr => &m P_in_arg /=.
+have -> : pr_success = Pr[Runner(F, FRO).run(arg{m}) @ &m : success res.`1].
++ by byphoare (_ : arg = arg{m} ==> _) => //; conseq success_eq.
+apply (pr_fork_success &m arg{m}).
+qed.
+
+end section CONVENIENCE.
 
 end section PROOF.
 
