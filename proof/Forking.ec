@@ -169,6 +169,29 @@ module Forker(F : Forkable) = {
 
 section PROOF.
 
+local equiv oracle_log_equiv (O <: Oracle) :
+  O.get ~ Log(O).get : ={glob O, arg} ==> ={glob O, res}.
+proof.
+proc *.
+inline.
+sim.
+qed.
+
+(* TODO: Move this somewhere else? *)
+equiv runner_log_equiv (S <: Stoppable {-Log}) :
+  Runner(S, FRO).run ~ Runner(S, Log(FRO)).run :
+  ={glob S, arg} ==> ={glob S, res}.
+proof.
+proc.
+call (_ : true).
+call (oracle_log_equiv FRO).
+while (={glob S, c, q}).
++ rewrite equiv [{2} 1 - (oracle_log_equiv FRO)].
+  sim.
+conseq (_ : _ ==> ={glob S, c, q}) => //.
+sim.
+qed.
+
 declare module F <: Forkable {-FRO, -Log, -Runner, -Forker}.
 
 (* Coppied from easycrypt-rewinding. *)
@@ -205,28 +228,6 @@ qed.
 local lemma set_st_ll : islossless F.setState.
 proof.
 smt(F_rewindable).
-qed.
-
-local equiv oracle_log_equiv (O <: Oracle) :
-  O.get ~ Log(O).get : ={glob O, arg} ==> ={glob O, res}.
-proof.
-proc *.
-inline.
-sim.
-qed.
-
-local equiv runner_log_equiv :
-  Runner(F, FRO).run ~ Runner(F, Log(FRO)).run :
-  ={glob F, arg} ==> ={glob F, res}.
-proof.
-proc.
-call (_ : true).
-call (oracle_log_equiv FRO).
-while (={glob F, c, q}).
-+ rewrite equiv [{2} 1 - (oracle_log_equiv FRO)].
-  sim.
-conseq (_ : _ ==> ={glob F, c, q}) => //.
-sim.
 qed.
 
 (* STEP 1:
@@ -299,7 +300,7 @@ local equiv fst_run_equiv :
   ={arg, glob F} ==> ={glob F} /\ res{1}.`1 = res{2}.
 proof.
 proc *.
-rewrite equiv [{2} 1 runner_log_equiv].
+rewrite equiv [{2} 1 (runner_log_equiv F)].
 exlim (Log.log{2}) => log0.
 call (fst_run_log_equiv log0).
 auto.
@@ -806,7 +807,7 @@ proof.
 move => j_range.
 byequiv => //.
 proc *.
-rewrite equiv [{1} 1 runner_log_equiv].
+rewrite equiv [{1} 1 (runner_log_equiv F)].
 exlim (Log.log{1}) => log0.
 call (main_run_equiv j log0).
 auto.
