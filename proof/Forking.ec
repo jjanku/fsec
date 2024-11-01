@@ -192,6 +192,28 @@ conseq (_ : _ ==> ={glob S, c, q}) => //.
 sim.
 qed.
 
+(* TODO: Log should, at this point, probably be moved outside this file. *)
+hoare run_log_size (S <: Stoppable {-Log}) (O <: Oracle {-Log}) :
+  Runner(S, Log(O)).run : Log.log = [] ==> size Log.log = Q.
+proof.
+have get_inc : forall n, hoare[
+  Log(O).get : size Log.log = n ==> size Log.log = n + 1].
++ move => n.
+  proc.
+  wp; call (_ : true).
+  auto; smt(size_cat).
+proc.
+call (_ : true).
+ecall (get_inc (Q - 1)).
+while (c <= Q /\ size Log.log = c - 1).
++ wp; call (_ : true).
+  ecall (get_inc (c - 1)).
+  auto => /#.
+wp; call (_ : true).
+auto => />.
+smt(Q_pos).
+qed.
+
 declare module F <: Forkable {-FRO, -Log, -Runner, -Forker}.
 
 (* Coppied from easycrypt-rewinding. *)
@@ -309,20 +331,7 @@ qed.
 local hoare fst_log_size :
   Forker(F).fst : true ==> size res.`2 = Q.
 proof.
-proc; inline.
-call (_ : true).
-wp.
-rnd.
-wp.
-call (_ : true).
-while (c = size Log.log + 1 /\ c <= Q).
-+ wp; call (_ : true); wp; rnd; wp; call (_ : true); skip.
-  smt(size_cat).
-wp.
-call (_ : true).
-wp.
-skip => />.
-smt(Q_pos size_cat).
+conseq (fst_run_log_equiv []) (run_log_size F FRO) => /#.
 qed.
 
 (* TODO: Decompose? *)
@@ -988,47 +997,6 @@ apply square_sum.
 smt(ge0_mu).
 qed.
 
-hoare success_log_props :
-  Forker(F).run : true ==>
-  let j = res.`1 in
-  let (q1, r1) = nth witness Forker.log1 j in
-  let (q2, r2) = nth witness Forker.log2 j in
-    success j => take j Forker.log1 = take j Forker.log2 /\ q1 = q2 /\ r1 <> r2.
-proof.
-proc.
-wp.
-have snd_head : forall q0, hoare[
-  Forker(F).snd : q = q0 ==> (head witness res.`2).`1 = q0
-].
-+ move => q0.
-  proc; inline Log.
-  (* TODO: Again, reordering the instructions might help? *)
-  case (Q <= c).
-  + rcondf 2; auto; 1: smt().
-    call (_ : true).
-    wp.
-    call (_ : true) => //.
-    auto.
-  unroll 2; rcondt 2; 1: auto => /#.
-  call (_ : true) => /=.
-  wp.
-  call (_ : true) => //.
-  wp.
-  while ((head witness Log.log).`1 = q0 /\ Log.log <> []).
-  + wp; call (_ : true); wp; call (_ : true) => //; wp.
-    skip.
-    smt(head_cons).
-  wp; call (_ : true); wp; call (_ : true) => //.
-  auto.
-  smt(head_cons).
-ecall (snd_head q).
-call (_ : true).
-wp.
-call fst_log_size.
-skip.
-smt(take_catl take_take size_take nth_cat nth0_head).
-qed.
-
 section PROPERTY_TRANSFER.
 
 (* In this section, we show that if the result of running F with FRO
@@ -1211,6 +1179,61 @@ qed.
 
 end section PROPERTY_TRANSFER.
 
+hoare success_log_props :
+  Forker(F).run : true ==>
+  let j = res.`1 in
+  let (q1, r1) = nth witness Forker.log1 j in
+  let (q2, r2) = nth witness Forker.log2 j in
+    success j =>
+      size Forker.log1 = Q /\ size Forker.log2 = Q /\
+      take j Forker.log1 = take j Forker.log2 /\
+      q1 = q2 /\ r1 <> r2.
+proof.
+conseq
+  (_ : _ ==>
+    let j = res.`1 in success j => size Forker.log1 = Q /\ size Forker.log2 = Q)
+  (_ : _ ==>
+    let j = res.`1 in
+    let (q1, r1) = nth witness Forker.log1 j in
+    let (q2, r2) = nth witness Forker.log2 j in
+      success j => take j Forker.log1 = take j Forker.log2 /\ q1 = q2 /\ r1 <> r2);
+1: smt(); first last.
++ conseq (property_transfer predT (fun (r : out_t * log_t list) => size r.`2 = Q) _); 1: smt().
+  conseq (run_log_size F FRO).
+proc.
+wp.
+have snd_head : forall q0, hoare[
+  Forker(F).snd : q = q0 ==> (head witness res.`2).`1 = q0
+].
++ move => q0.
+  proc; inline Log.
+  (* TODO: Again, reordering the instructions might help? *)
+  case (Q <= c).
+  + rcondf 2; auto; 1: smt().
+    call (_ : true).
+    wp.
+    call (_ : true) => //.
+    auto.
+  unroll 2; rcondt 2; 1: auto => /#.
+  call (_ : true) => /=.
+  wp.
+  call (_ : true) => //.
+  wp.
+  while ((head witness Log.log).`1 = q0 /\ Log.log <> []).
+  + wp; call (_ : true); wp; call (_ : true) => //; wp.
+    skip.
+    smt(head_cons).
+  wp; call (_ : true); wp; call (_ : true) => //.
+  auto.
+  smt(head_cons).
+ecall (snd_head q).
+call (_ : true).
+wp.
+call fst_log_size.
+skip.
+smt(take_catl take_take size_take nth_cat nth0_head).
+qed.
+
 section CONVENIENCE.
 
 (* Here we just combine all results we have into a (hopefully)
@@ -1239,6 +1262,7 @@ lemma forking_lemma :
     let (q1, r1) = nth witness log1 j in
     let (q2, r2) = nth witness log2 j in
     success j /\
+    size log1 = Q /\ size log2 = Q /\
     take j log1 = take j log2 /\ q1 = q2 /\ r1 <> r2 /\
     P_out ((j, a1), log1) /\ P_out ((j, a2), log2)
   ] >= (pr_success ^ 2 / Q%r - pr_success * pr_collision).
@@ -1250,8 +1274,9 @@ conseq (_ : _ ==> success res.`1) (_ : _ ==>
     let log2 = Forker.log2 in
     let (q1, r1) = nth witness log1 j in
     let (q2, r2) = nth witness log2 j in
-    take j log1 = take j log2 /\
-    q1 = q2 /\ r1 <> r2 /\ P_out ((j, a1), log1) /\ P_out ((j, a2), log2)).
+    size log1 = Q /\ size log2 = Q /\
+    take j log1 = take j log2 /\ q1 = q2 /\ r1 <> r2 /\
+    P_out ((j, a1), log1) /\ P_out ((j, a2), log2)).
 + trivial.
 + smt().
 + pose P_out' := fun (ol : out_t * (log_t list)) => success ol.`1.`1 => P_out ol.
