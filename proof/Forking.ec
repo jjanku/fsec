@@ -215,13 +215,6 @@ inline.
 sim.
 qed.
 
-(* FIXME: Can we avoid this? *)
-local equiv log_oracle_equiv (O <: Oracle) :
-  Log(O).get ~ O.get : ={glob O, arg} ==> ={glob O, res}.
-proof.
-symmetry. conseq (oracle_log_equiv O) => //.
-qed.
-
 local equiv runner_log_equiv :
   Runner(F, FRO).run ~ Runner(F, Log(FRO)).run :
   ={glob F, arg} ==> ={glob F, res}.
