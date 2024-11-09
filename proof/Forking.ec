@@ -20,13 +20,24 @@ module type Rewindable = {
   proc setState(st : state_t) : unit
 }.
 
-(* Auxiliary output type. *)
-type aux_t.
+(* Input & auxiliary output type. *)
+type in_t, aux_t.
 
+type query_t, resp_t.
+const Q : {int | 1 <= Q} as Q_pos.
+
+(* TODO: Is this idiomatic in EC? *)
 clone import Stopping as ForkStopping with
-  type out_t <= int * aux_t.
+  type query_t <- query_t,
+  type resp_t  <- resp_t,
+  op   Q       <- Q,
+  type in_t    <- in_t,
+  type out_t   <= int * aux_t
+proof *.
+realize Q_pos by exact Q_pos.
 (* TODO: Why is this not imported as well? *)
 type out_t = int * aux_t.
+export ForkStopping.
 
 op [lossless uniform] dresp : resp_t distr.
 

@@ -12,9 +12,28 @@ pragma Goals:printall.
 
 require import AllCore List FMap.
 
-(* FIXME: Probably need to clone? *)
-require import Forking.
-import ForkStopping.
+type state_t.
+
+type in_t, aux_t.
+
+type query_t, resp_t.
+op [lossless uniform] dresp : resp_t distr.
+const Q : {int | 1 <= Q} as Q_pos.
+
+(* TODO: Same patter as in Forking.ro. Is it idiomatic? *)
+require Forking.
+clone import Forking as ForkingLRO with
+  type state_t <- state_t,
+  type query_t <- query_t,
+  type resp_t  <- resp_t,
+  op   dresp   <- dresp,
+  op   Q       <- Q,
+  type in_t    <- in_t,
+  type aux_t   <- aux_t
+proof *.
+realize Q_pos     by exact Q_pos.
+realize dresp_ll  by exact dresp_ll.
+realize dresp_uni by exact dresp_uni.
 
 (* NOTE: We don't use the programming capabilities.
  * PROM was chosen instead of ROM because in conforms
@@ -40,8 +59,8 @@ clone import Stopping as ForkStoppingRO with
   rename "Stoppable" as "StoppableRO"
   rename "Runner" as "RunnerRO"
 proof *.
-realize Q_pos. exact Q_pos.
-qed.
+realize Q_pos by exact Q_pos.
+export ForkStoppingRO.
 
 module type ForkableRO = {
   include Rewindable
@@ -330,7 +349,7 @@ lemma forking_lemma_ro :
 proof.
 proc.
 wp.
-pose Red_P_out := (fun (ret : out_t * log_t list) =>
+pose Red_P_out := (fun (ret : (int * aux_t) * log_t list) =>
   let (o, log) = ret in
   let (j, aux) = o in
   let m = ofassoc log in
