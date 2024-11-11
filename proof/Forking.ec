@@ -1015,28 +1015,28 @@ section PROPERTY_TRANSFER.
  * satisfies some property P_out, then this property also holds for
  * the two results produced by Forker (provided that it succeeds). *)
 
-declare pred P_in : in_t.
+declare pred P_in : glob F * in_t.
 declare pred P_out : out_t * (log_t list).
 
 declare axiom run_prop :
-  hoare[Runner(F, Log(FRO)).run : P_in i /\ Log.log = [] ==> P_out (res, Log.log)].
+  hoare[Runner(F, Log(FRO)).run : P_in (glob F, i) /\ Log.log = [] ==> P_out (res, Log.log)].
 
 local hoare fst_run_prop :
-  Forker(F).fst : P_in i ==> P_out (res.`1, res.`2).
+  Forker(F).fst : P_in (glob F, i) ==> P_out (res.`1, res.`2).
 proof.
-conseq (fst_run_log_equiv []) (_ : P_in i /\ Log.log = [] ==> P_out (res, Log.log)) => //.
+conseq (fst_run_log_equiv []) (_ : P_in (glob F, i) /\ Log.log = [] ==> P_out (res, Log.log)) => //.
 + smt().
 apply run_prop.
 qed.
 
 local lemma snd_run_prop_split :
-  (forall j, 0 <= j < Q => hoare[Forker(F).run : P_in i ==> res.`1 = j => P_out ((res.`1, res.`3), Forker.log2)]) =>
-  hoare[Forker(F).run : P_in i ==> success res.`1 => P_out ((res.`1, res.`3), Forker.log2)].
+  (forall j, 0 <= j < Q => hoare[Forker(F).run : P_in (glob F, i) ==> res.`1 = j => P_out ((res.`1, res.`3), Forker.log2)]) =>
+  hoare[Forker(F).run : P_in (glob F, i) ==> success res.`1 => P_out ((res.`1, res.`3), Forker.log2)].
 proof.
 have snd_forall :
   forall n, 0 <= n =>
-  (forall j, 0 <= j < n => hoare[Forker(F).run : P_in i ==> res.`1 = j => P_out ((res.`1, res.`3), Forker.log2)]) =>
-  hoare[Forker(F).run : P_in i ==> 0 <= res.`1 < n => P_out ((res.`1, res.`3), Forker.log2)].
+  (forall j, 0 <= j < n => hoare[Forker(F).run : P_in (glob F, i) ==> res.`1 = j => P_out ((res.`1, res.`3), Forker.log2)]) =>
+  hoare[Forker(F).run : P_in (glob F, i) ==> 0 <= res.`1 < n => P_out ((res.`1, res.`3), Forker.log2)].
 + apply ge0ind => /=.
   + smt().
   + move => _.
@@ -1131,29 +1131,29 @@ qed.
 
 local lemma snd_run_prop_single j0 :
   0 <= j0 < Q =>
-  hoare[Forker(F).run : P_in arg ==> res.`1 = j0 => P_out ((res.`1, res.`3), Forker.log2)].
+  hoare[Forker(F).run : P_in (glob F, arg) ==> res.`1 = j0 => P_out ((res.`1, res.`3), Forker.log2)].
 proof.
 move => j0_range.
 conseq
-  (_ : P_in arg ==> Forker.j1 = j0 => P_out ((Forker.j2, res.`3), Forker.log2))
+  (_ : P_in (glob F, arg) ==> Forker.j1 = j0 => P_out ((Forker.j2, res.`3), Forker.log2))
   (_ : _ ==> res.`1 = j0 => Forker.j1 = j0 /\ Forker.j2 = j0) => //.
 + smt().
 + proc.
   seq 9 : true => //.
   auto => /#.
 conseq (run_run1_equiv j0 j0_range)
-  (_ : P_in arg.`1 /\ arg.`2 = j0 ==> res.`1 = j0 => P_out ((res.`2, res.`4), res.`6)).
+  (_ : P_in (glob F, arg.`1) /\ arg.`2 = j0 ==> res.`1 = j0 => P_out ((res.`2, res.`4), res.`6)).
 + smt().
 + smt().
 conseq (run1_run2_equiv j0 j0_range)
-  (_ : P_in arg.`1 /\ arg.`2 = j0 ==> P_out ((res.`2, res.`4), res.`6)).
+  (_ : P_in (glob F, arg.`1) /\ arg.`2 = j0 ==> P_out ((res.`2, res.`4), res.`6)).
 + smt().
 + smt().
 conseq (init_rew_split_equiv j0 j0_range)
-  (_ : P_in arg.`1 /\ arg.`2 = j0 ==> P_out res.`2.`2).
+  (_ : P_in (glob F, arg.`1) /\ arg.`2 = j0 ==> P_out res.`2.`2).
 + smt().
 + smt().
-conseq init_rew_snd_equiv (_ : P_in arg.`1 /\ arg.`2 = j0 ==> P_out res.`2).
+conseq init_rew_snd_equiv (_ : P_in (glob F, arg.`1) /\ arg.`2 = j0 ==> P_out res.`2).
 + smt().
 + smt().
 have main_run_equiv_rev :
@@ -1171,7 +1171,7 @@ qed.
 
 hoare property_transfer :
   Forker(F).run :
-  P_in i ==>
+  P_in (glob F, i) ==>
   let (j, a1, a2) = res in success j =>
     P_out ((j, a1), Forker.log1) /\ P_out ((j, a2), Forker.log2).
 proof.
@@ -1251,21 +1251,21 @@ section CONVENIENCE.
 (* Here we just combine all results we have into a (hopefully)
  * more usable package. *)
 
-declare pred P_in : in_t.
+declare pred P_in : glob F * in_t.
 declare pred P_out : out_t * (log_t list).
 
 declare axiom success_impl :
-  hoare[Runner(F, Log(FRO)).run : P_in i /\ Log.log = [] ==> success res.`1 => P_out (res, Log.log)].
+  hoare[Runner(F, Log(FRO)).run : P_in (glob F, i) /\ Log.log = [] ==> success res.`1 => P_out (res, Log.log)].
 
 declare op pr_success : real.
 
 declare axiom success_eq :
-  phoare[Runner(F, FRO).run : P_in i ==> success res.`1] = pr_success.
+  phoare[Runner(F, FRO).run : P_in (glob F, i) ==> success res.`1] = pr_success.
 
 lemma forking_lemma :
   phoare[
     Forker(F).run :
-    P_in arg ==>
+    P_in (glob F, arg) ==>
     let (j, a1, a2) = res in
     let log1 = Forker.log1 in
     let log2 = Forker.log2 in
@@ -1293,11 +1293,10 @@ conseq (_ : _ ==> success res.`1) (_ : _ ==>
   conseq success_log_props (property_transfer P_in P_out' success_impl) => /#.
 bypr => &m P_in_arg /=.
 have -> : pr_success = Pr[Runner(F, FRO).run(arg{m}) @ &m : success res.`1].
-+ by byphoare (_ : arg = arg{m} ==> _) => //; conseq success_eq.
++ by byphoare (_ : glob F = (glob F){m} /\ arg = arg{m} ==> _) => //; conseq success_eq.
 apply (pr_fork_success &m arg{m}).
 qed.
 
 end section CONVENIENCE.
 
 end section PROOF.
-

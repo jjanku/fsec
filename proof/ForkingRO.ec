@@ -313,14 +313,14 @@ qed.
 
 section CONVENIENCE.
 
-declare pred P_in : in_t.
+declare pred P_in : glob F * in_t.
 (* FIXME: How to declare the predicate so that it takes two values instead of a pair? *)
 declare pred P_out : (query_t option * aux_t) * ((query_t, resp_t) fmap).
 
 declare axiom success_impl :
   hoare[
     RunnerRO(F, LRO).run :
-    P_in i /\ LRO.m = empty ==>
+    P_in (glob F, i) /\ LRO.m = empty ==>
     success_ro LRO.m res.`1 => P_out (res, LRO.m)
   ].
 
@@ -329,14 +329,14 @@ declare op pr_success : real.
 declare axiom success_eq :
   phoare[
     RunnerRO(F, LRO).run :
-    P_in i /\ LRO.m = empty
+    P_in (glob F, i) /\ LRO.m = empty
     ==> success_ro LRO.m res.`1
   ] = pr_success.
 
 lemma forking_lemma_ro :
   phoare[
     ForkerRO(F).run :
-    P_in arg ==>
+    P_in (glob F, arg) ==>
     let (cq, a1, a2) = res in
     let m1 = ForkerRO.m1 in
     let m2 = ForkerRO.m2 in
@@ -349,6 +349,11 @@ lemma forking_lemma_ro :
 proof.
 proc.
 wp.
+pose Red_P_in := (fun (arg : glob Red(F) * in_t) =>
+  let (gRed, i) = arg in
+  let (_, __, gF) = gRed in
+  P_in (gF, i)
+).
 pose Red_P_out := (fun (ret : (int * aux_t) * log_t list) =>
   let (o, log) = ret in
   let (j, aux) = o in
@@ -359,12 +364,12 @@ pose Red_P_out := (fun (ret : (int * aux_t) * log_t list) =>
 call (
   forking_lemma (Red(F))
   Red_F_rewindable Red_F_continue_ll Red_F_finish_ll
-  P_in Red_P_out _ pr_success _
+  Red_P_in Red_P_out _ pr_success _
 ).
 + conseq red_log_fro_lro_equiv success_impl; 1: smt().
   smt(nth_assoc_index).
 + have success_eq_log : phoare[
-    Runner(Red(F), Log(FRO)).run : P_in i /\ Log.log = [] ==> success res.`1
+    Runner(Red(F), Log(FRO)).run : P_in (glob F, i) /\ Log.log = [] ==> success res.`1
   ] = pr_success.
   + conseq red_log_fro_lro_equiv success_eq => /#.
   conseq (runner_log_equiv (Red(F))) success_eq_log => /#.
