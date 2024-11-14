@@ -334,16 +334,17 @@ proof.
 conseq (fst_run_log_equiv []) (run_log_size F FRO) => /#.
 qed.
 
+const pr_collision = 1%r / (size (to_seq (support dresp)))%r.
+
 (* TODO: Decompose? *)
 local lemma pr_succ_resp_eq &m i :
   Pr[Forker(F).run(i) @ &m : success Forker.j1 /\ Forker.r1 = Forker.r2] <=
-  Pr[Runner(F, FRO).run(i) @ &m : success res.`1] * (1%r / (size (to_seq (support dresp)))%r).
+  Pr[Runner(F, FRO).run(i) @ &m : success res.`1] * pr_collision.
 proof.
-pose inv_supp_size := 1%r / (size (to_seq (support dresp)))%r.
 byphoare (: arg = i /\ glob F = (glob F){m} ==> _) => //.
 proc.
 seq 3 : (success Forker.j1)
-  Pr[Runner(F, FRO).run(i) @ &m : success res.`1] inv_supp_size
+  Pr[Runner(F, FRO).run(i) @ &m : success res.`1] pr_collision
   _ 0%r
   (size Forker.log1 = Q);
 last by trivial.
@@ -368,13 +369,13 @@ last by trivial.
   + smt(nth_cat size_takel nth0_head).
   (* FIXME: This is rather painful. Call doesn't work in pHL? *)
   seq 12 : (success Forker.j1 /\ Forker.r1 = (head witness Log.log).`2)
-    inv_supp_size 1%r
+    pr_collision 1%r
     _ 0%r;
   1,3,5: trivial; first last.
   + hoare; call (_ : true); auto.
   wp.
   have mu_dresp_eq :
-    forall r0, mu dresp (fun r => r0 = r) <= inv_supp_size.
+    forall r0, mu dresp (fun r => r0 = r) <= pr_collision.
   + move => r0.
     have -> : (fun r => r0 = r) = pred1 r0 by smt().
     rewrite (mu1_uni_ll _ _ dresp_uni dresp_ll).
@@ -392,7 +393,7 @@ last by trivial.
   unroll 6; rcondt 6.
   + wp; call (_ : true); wp; skip => /#.
   seq 11 : (success Forker.j1 /\ Forker.r1 = (head witness Log.log).`2)
-    inv_supp_size 1%r
+    pr_collision 1%r
     _ 0%r
     (Log.log <> []);
   3,5: trivial.
@@ -975,7 +976,7 @@ qed.
 lemma pr_fork_success &m i :
   let pr_runner_succ = Pr[Runner(F, FRO).run(i) @ &m : success res.`1] in
   let pr_fork_succ   = Pr[Forker(F).run(i) @ &m : success res.`1] in
-  pr_fork_succ >= pr_runner_succ ^ 2 / Q%r - pr_runner_succ * (1%r / (size (to_seq (support dresp)))%r).
+  pr_fork_succ >= pr_runner_succ ^ 2 / Q%r - pr_runner_succ * pr_collision.
 proof.
 simplify.
 rewrite fork_pr.
@@ -1249,8 +1250,6 @@ declare op pr_success : real.
 
 declare axiom success_eq :
   phoare[Runner(F, FRO).run : P_in i ==> success res.`1] = pr_success.
-
-op pr_collision = 1%r / (size (to_seq (support dresp)))%r.
 
 lemma forking_lemma :
   phoare[
