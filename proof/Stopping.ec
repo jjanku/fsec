@@ -56,6 +56,8 @@ module Runner(S : Stoppable, O : Oracle) = {
  *   module Adv = Runner(SAdv).
  *)
 
+theory Ind.
+
 module IndRunner(S : Stoppable, O : Oracle) = {
   proc iter(q : query_t, n : int) : query_t = {
     var r : resp_t;
@@ -129,3 +131,5 @@ wp; call (_ : true); wp; skip => /#.
 qed.
 
 end section PROOF.
+
+end Ind.
