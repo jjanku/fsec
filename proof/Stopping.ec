@@ -56,6 +56,38 @@ module Runner(S : Stoppable, O : Oracle) = {
  *   module Adv = Runner(SAdv).
  *)
 
+module type IGen = {
+  proc gen() : in_t
+}.
+
+module IRunner(I : IGen, S : Stoppable, O : Oracle) = {
+  proc run() : out_t = {
+    var i, o;
+    i <@ I.gen();
+    o <@ Runner(S, O).run(i);
+    return o;
+  }
+}.
+
+module ConstGen : IGen = {
+  var i : in_t
+
+  proc gen() : in_t = {
+    return i;
+  }
+}.
+
+equiv const_gen_runner_equiv (O <: Oracle) (S <: Stoppable {-O}) :
+  Runner(S, O).run ~ IRunner(ConstGen, S, O).run :
+  ={glob S, glob O} /\ arg{1} = ConstGen.i{2} ==> ={glob S, glob O, res}.
+proof.
+proc *.
+inline IRunner ConstGen.
+wp.
+call (_ : ={glob S, glob O}); 1: sim.
+auto.
+qed.
+
 theory Ind.
 
 module IndRunner(S : Stoppable, O : Oracle) = {

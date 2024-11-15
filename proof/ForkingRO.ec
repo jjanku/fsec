@@ -201,27 +201,66 @@ module Red(F : ForkableRO) : Forkable = {
 op success_ro (m : (query_t, resp_t) fmap) (cq : query_t option) =
   is_some cq /\ oget cq \in m.
 
-module ForkerRO(F : ForkableRO) = {
+module IForkerRO(I : IGen, F : ForkableRO) = {
   var m1, m2 : (query_t, resp_t) fmap
 
-  proc run(i : in_t) : query_t option * aux_t * aux_t = {
+  proc run() : query_t option * aux_t * aux_t = {
     var j, a1, a2, cq;
 
-    (j, a1, a2) <@ Forker(Red(F)).run(i);
+    (j, a1, a2) <@ IForker(I, Red(F)).run();
 
-    m1 <- ofassoc Forker.log1;
-    m2 <- ofassoc Forker.log2;
+    m1 <- ofassoc IForker.log1;
+    m2 <- ofassoc IForker.log2;
     cq <- if success j
-      then Some (nth witness Forker.log1 j).`1
+      then Some (nth witness IForker.log1 j).`1
       else None;
 
     return (cq, a1, a2);
   }
 }.
 
+(* TODO: Better way to solve the name clash?
+ * ForkStoppingRO.ConstGen = ForkStopping.ConstGen,
+ * but module overrides don't work anymore iirc. *)
+module ConstGen = ForkStopping.ConstGen.
+
+module ForkerRO(F : ForkableRO) = {
+  proc run(i : in_t) : query_t option * aux_t * aux_t = {
+    var ret;
+    ConstGen.i <- i;
+    ret <@ IForkerRO(ConstGen, F).run();
+    return ret;
+  }
+}.
+
+module GenThenForkRO(I : IGen, F : ForkableRO) = {
+  proc run() : query_t option * aux_t * aux_t = {
+    var i, ret;
+    i <@ I.gen();
+    ret <@ ForkerRO(F).run(i);
+    return ret;
+  }
+}.
+
+equiv gen_then_fork_ro_equiv (I <: IGen {-IForkerRO, -ConstGen}) (F <: ForkableRO {-I, -IForkerRO, -ConstGen}) :
+  GenThenForkRO(I, F).run ~ IForkerRO(I, F).run :
+  ={glob I, glob F} ==> ={glob I, glob F, IForkerRO.m1, IForkerRO.m2, res}.
+proof.
+proc.
+rewrite equiv [{2} 1 -(gen_then_fork_equiv I (Red(F)))].
+inline * -IForker.
+wp.
+call (_ : ={ConstGen.i, glob I, glob F} ==> ={glob I, glob F, res, glob IForker}).
++ sim.
+wp; call (_ : true).
+auto => />.
+qed.
+
 section PROOF.
 
-declare module F <: ForkableRO {-Red, -FRO, -LRO, -Log, -Runner, -Forker}.
+declare module I <: IGen {-Log, -IForkerRO, -LRO}.
+
+declare module F <: ForkableRO {-I, -Red, -FRO, -LRO, -Log, -Runner, -IForker}.
 
 (* Coppied from easycrypt-rewinding. *)
 declare axiom F_rewindable :
@@ -277,17 +316,17 @@ smt(ofassoc_cat1 ofassoc_rep).
 qed.
 
 local equiv red_log_fro_lro_equiv :
-  Runner(Red(F), Log(FRO)).run ~ RunnerRO(F, LRO).run :
+  IRunner(I, Red(F), Log(FRO)).run ~ IRunnerRO(I, F, LRO).run :
   (* TODO: Consider initializing the oracle in Runner. *)
-  ={arg, glob F} /\ Log.log{1} = [] /\ LRO.m{2} = empty ==>
-  ={glob F} /\ ofassoc Log.log{1} = LRO.m{2} /\
+  ={glob I, glob F} /\ Log.log{1} = [] /\ LRO.m{2} = empty ==>
+  ={glob I, glob F} /\ ofassoc Log.log{1} = LRO.m{2} /\
   res{1}.`1 = odflt Q (omap (assoc_index Log.log{1}) res{2}.`1) /\ res{1}.`2 = res{2}.`2 /\
   (success res{1}.`1 <=> success_ro LRO.m{2} res{2}.`1).
 proof.
 conseq
-  (_ : _ ==> ={glob F} /\ ofassoc Log.log{1} = LRO.m{2} /\
+  (_ : _ ==> ={glob I, glob F} /\ ofassoc Log.log{1} = LRO.m{2} /\
              res{1}.`1 = odflt Q (omap (assoc_index Log.log{1}) res{2}.`1) /\ res{1}.`2 = res{2}.`2)
-  (run_log_size (Red(F)) FRO) => //.
+  (irun_log_size I (Red(F)) FRO) => //.
 + move => />.
   move => resL resR m.
   pose j := resL.`1; pose cq := resR.`1.
@@ -295,84 +334,85 @@ conseq
   + smt().
   smt(index_ge0 assoc_index_mem).
 proc.
+inline Runner RunnerRO.
 inline Red -Red(F).fix_resp.
 wp => /=.
 call (_ : true).
-outline {1} [7-9] r1 <@ RedO.get.
+outline {1} [9-11] r1 <@ RedO.get.
 call redo_lro_equiv.
-while (={c, q, glob F} /\ Log.log{1} = Red.m{1} /\ ofassoc Red.m{1} = LRO.m{2} /\ q{1} = Red.q{1}).
+while (={c, q, glob I, glob F} /\ Log.log{1} = Red.m{1} /\ ofassoc Red.m{1} = LRO.m{2} /\ q{1} = Red.q{1}).
 + outline {1} [1-3] r0 <@ RedO.get.
   wp.
   call (_ : true).
   call redo_lro_equiv.
   auto => />.
-wp; call (_ : true).
+do 2! (wp; call (_ : true)).
 auto => />.
 exact ofassoc_empty.
 qed.
 
 section CONVENIENCE.
 
-declare pred P_in : glob F * in_t.
+declare pred P_in : glob I * glob F.
 (* FIXME: How to declare the predicate so that it takes two values instead of a pair? *)
-declare pred P_out : (query_t option * aux_t) * ((query_t, resp_t) fmap).
+declare pred P_out : glob I * (query_t option * aux_t) * ((query_t, resp_t) fmap).
 
 declare axiom success_impl :
   hoare[
-    RunnerRO(F, LRO).run :
-    P_in (glob F, i) /\ LRO.m = empty ==>
-    success_ro LRO.m res.`1 => P_out (res, LRO.m)
+    IRunnerRO(I, F, LRO).run :
+    P_in (glob I, glob F) /\ LRO.m = empty ==>
+    success_ro LRO.m res.`1 => P_out (glob I, res, LRO.m)
   ].
 
 declare op pr_success : real.
 
 declare axiom success_eq :
   phoare[
-    RunnerRO(F, LRO).run :
-    P_in (glob F, i) /\ LRO.m = empty
+    IRunnerRO(I, F, LRO).run :
+    P_in (glob I, glob F) /\ LRO.m = empty
     ==> success_ro LRO.m res.`1
   ] = pr_success.
 
 lemma forking_lemma_ro :
   phoare[
-    ForkerRO(F).run :
-    P_in (glob F, arg) ==>
+    IForkerRO(I, F).run :
+    P_in (glob I, glob F) ==>
     let (cq, a1, a2) = res in
-    let m1 = ForkerRO.m1 in
-    let m2 = ForkerRO.m2 in
+    let m1 = IForkerRO.m1 in
+    let m2 = IForkerRO.m2 in
     (* TODO: Rename cq? *)
     let q  = oget cq in
     is_some cq /\
     q \in m1 /\ q \in m2 /\ m1.[q] <> m2.[q] /\
-    P_out ((cq, a1), m1) /\ P_out ((cq, a2), m2)
+    P_out (glob I, (cq, a1), m1) /\ P_out (glob I, (cq, a2), m2)
   ] >= (pr_success ^ 2 / Q%r - pr_success * pr_collision).
 proof.
 proc.
 wp.
-pose Red_P_in := (fun (arg : glob Red(F) * in_t) =>
-  let (gRed, i) = arg in
+pose Red_P_in := (fun (arg : glob I * glob Red(F)) =>
+  let (gI, gRed) = arg in
   let (_, __, gF) = gRed in
-  P_in (gF, i)
+  P_in (gI, gF)
 ).
-pose Red_P_out := (fun (ret : (int * aux_t) * log_t list) =>
-  let (o, log) = ret in
+pose Red_P_out := (fun (ret : glob I * (int * aux_t) * log_t list) =>
+  let (gI, o, log) = ret in
   let (j, aux) = o in
   let m = ofassoc log in
   let (q, r) = nth witness log j in
-  q \in m /\ m.[q] = Some r /\ P_out ((Some q, aux), m)
+  q \in m /\ m.[q] = Some r /\ P_out (gI, (Some q, aux), m)
 ).
 call (
-  forking_lemma (Red(F))
+  forking_lemma I (Red(F))
   Red_F_rewindable Red_F_continue_ll Red_F_finish_ll
   Red_P_in Red_P_out _ pr_success _
 ).
 + conseq red_log_fro_lro_equiv success_impl; 1: smt().
   smt(nth_assoc_index).
 + have success_eq_log : phoare[
-    Runner(Red(F), Log(FRO)).run : P_in (glob F, i) /\ Log.log = [] ==> success res.`1
+    IRunner(I, Red(F), Log(FRO)).run : P_in (glob I, glob F) /\ Log.log = [] ==> success res.`1
   ] = pr_success.
   + conseq red_log_fro_lro_equiv success_eq => /#.
-  conseq (runner_log_equiv (Red(F))) success_eq_log => /#.
+  conseq (irunner_log_equiv I (Red(F))) success_eq_log => /#.
 skip.
 rewrite /Red_P_out.
 smt().
