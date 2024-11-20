@@ -1,6 +1,7 @@
 pragma Goals:printall.
 
-require import AllCore FMap List Distr Finite.
+require import AllCore FMap List Distr Finite FelTactic StdBigop StdOrder Mu_mem.
+import RealOrder.
 
 require DLog.
 clone import DLog as DL
@@ -31,8 +32,10 @@ clone import DigitalSignaturesROM as DS_ROM with
   type in_t  <- query_t,
   type out_t <- chal_t.
 import StatelessROM.
+import DSS.Stateless.
 
-op dnonce : exp distr.
+(* In the simulator, we sample response from dt. *)
+op dnonce : exp distr = dt.
 (* The distribution of private keys must match the one used in Exp_DL. *)
 op dsk : sk_t distr = dt.
 op [lossless uniform] dchal : chal_t distr.
@@ -101,12 +104,21 @@ rewrite divrr.
 by rewrite exp1.
 qed.
 
+(* Number of random oracle queries. *)
+const QR : {int | 1 <= QR} as QR_pos.
+
+(* Number of signing queries. *)
+const QS : {int | 0 <= QS} as QS_ge0.
+
 require Stopping.
 clone import Stopping as AdvStopping with
   type in_t    <- pk_t,
   type out_t   <- msg_t * sig_t,
   type query_t <- query_t,
-  type resp_t  <- chal_t.
+  type resp_t  <- chal_t,
+  op   Q       <- QR
+proof *.
+realize Q_pos by exact QR_pos.
 
 require ForkingRO.
 clone import ForkingRO as AdvForkingRO with
@@ -117,19 +129,19 @@ clone import ForkingRO as AdvForkingRO with
   type query_t <- query_t,
   type resp_t  <- chal_t,
   op   dresp   <- dchal,
-  op   Q       <- Q + 1
+  op   Q       <- QR + 1
 proof *.
-realize Q_pos     by smt(Q_pos).
+realize Q_pos     by smt(QR_pos).
 realize dresp_ll  by exact dchal_ll.
 realize dresp_uni by exact dchal_uni.
 
 section SECURITY_EUF_KOA.
 
-module (AdvRunner (A : Stoppable) : Adv_EUFKOA_ROM) (O : Oracle) = {
+module (FAdv_KOA_Runner (A : Stoppable) : Adv_EUFKOA_ROM) (O : Oracle) = {
   proc forge = Runner(A, O).run
 }.
 
-module type ForkableAdv = {
+module type FAdv_KOA = {
   include Stoppable
   include ForkingLRO.Rewindable
 }.
@@ -138,7 +150,7 @@ module type ForkableAdv = {
  * at the end to verify A's forgery. *)
 (* TODO: Consider creating a generic module for this type
  * of transformation, it is probably a common pattern. *)
-module AdvWrapper (A : ForkableAdv) : ForkableRO = {
+module AdvWrapper (A : FAdv_KOA) : ForkableRO = {
   var c : int
   var pk : pk_t
   var q : query_t
@@ -169,7 +181,7 @@ module AdvWrapper (A : ForkableAdv) : ForkableRO = {
   proc continue(r : chal_t) : query_t = {
     var m, s;
 
-    if (c < Q) {
+    if (c < QR) {
       q <@ A.continue(r);
     } else {
       (m, s) <@ A.finish(r);
@@ -205,7 +217,7 @@ module KeyGen = {
   }
 }.
 
-declare module A <: ForkableAdv {-LRO, -AdvWrapper, -IForkerRO, -KeyGen, -ConstGen}.
+declare module A <: FAdv_KOA {-LRO, -AdvWrapper, -IForkerRO, -KeyGen, -ConstGen}.
 
 (* Coppied from easycrypt-rewinding. *)
 declare axiom A_rewindable :
@@ -239,23 +251,23 @@ islossless.
 qed.
 
 local equiv wrap_koa_success_equiv :
-  IRunnerRO(KeyGen, AdvWrapper(A), LRO).run ~ EUF_KOA_ROM(LRO, Schnorr, AdvRunner(A)).main :
+  IRunnerRO(KeyGen, AdvWrapper(A), LRO).run ~ EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(A)).main :
   LRO.m{1} = empty /\ ={glob A} ==> success_ro LRO.m{1} res{1}.`1 = res{2}.
 proof.
 proc.
 inline RunnerRO EUF_KOA.
 inline AdvWrapper(A).finish Schnorr(LRO).verify.
-inline AdvRunner.
-splitwhile {1} 5 : (c < Q).
+inline FAdv_KOA_Runner.
+splitwhile {1} 5 : (c < QR).
 inline {1} (2) AdvWrapper(A).continue.
 have lro_equiv : equiv[LRO.get ~ LRO.get : ={arg, glob LRO} ==> ={res, glob LRO}].
 + sim.
 seq 5 6 : (
   ={q, glob A, glob LRO} /\
-  c{1} = Q /\ c{1} = AdvWrapper.c{1} /\
+  c{1} = QR /\ c{1} = AdvWrapper.c{1} /\
   AdvWrapper.pk{1} = pk{2}
 ).
-+ while (={q, c, glob A, glob LRO} /\ c{1} = AdvWrapper.c{1} /\ c{1} <= Q).
++ while (={q, c, glob A, glob LRO} /\ c{1} = AdvWrapper.c{1} /\ c{1} <= QR).
   + inline AdvWrapper.
     rcondt {1} 3.
     + auto.
@@ -266,8 +278,7 @@ seq 5 6 : (
   inline.
   wp; call (_ : true).
   auto => />.
-  (* FIXME: Clear the wrong Q_pos. *)
-  smt(AdvStopping.Q_pos).
+  smt(QR_pos).
 rcondt {1} 1.
 + auto => /#.
 rcondf {1} 3.
@@ -309,7 +320,7 @@ inline.
 auto => /#.
 qed.
 
-module RedAdv (A : ForkableAdv) : Adv_DL = {
+module RedAdv (A : FAdv_KOA) : Adv_DL = {
   proc guess(h : group) : exp option = {
     var qo, resp1, resp2, ret;
 
@@ -326,7 +337,7 @@ module RedAdv (A : ForkableAdv) : Adv_DL = {
 
 (* This is (more or less) just Exp_DL(RedAdv(A)) with the adversary
  * inlined and the challenge generation moved to IForkerRO. *)
-local module Exp_DL0 (A : ForkableAdv) = {
+local module Exp_DL0 (A : FAdv_KOA) = {
   proc main() : bool = {
     var qo, resp1, resp2, ret;
 
@@ -356,8 +367,8 @@ qed.
 
 lemma schnorr_koa_secure &m :
   Pr[Exp_DL(RedAdv(A)).main() @ &m : res] >=
-    Pr[EUF_KOA_ROM(LRO, Schnorr, AdvRunner(A)).main() @ &m : res] ^ 2 / (Q + 1)%r -
-    Pr[EUF_KOA_ROM(LRO, Schnorr, AdvRunner(A)).main() @ &m : res]  / (size (to_seq (support dchal)))%r.
+    Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(A)).main() @ &m : res] ^ 2 / (QR + 1)%r -
+    Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(A)).main() @ &m : res]  / (size (to_seq (support dchal)))%r.
 proof.
 have -> : Pr[Exp_DL(RedAdv(A)).main() @ &m : res] = Pr[Exp_DL0(A).main() @ &m : res].
 + byequiv dl_exp_exp0_equiv => //.
@@ -380,7 +391,7 @@ call (
   KeyGen (AdvWrapper(A))
   Wrap_A_rewindable Wrap_A_continue_ll Wrap_A_finish_ll
   P_in P_out
-  _ Pr[EUF_KOA_ROM(LRO, Schnorr, AdvRunner(A)).main() @ &m : res]  _
+  _ Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(A)).main() @ &m : res]  _
 ); rewrite /P_in /P_out /=.
 + conseq success_impl_verify => /#.
 + bypr => &m0 mem_eqs.
@@ -390,3 +401,510 @@ smt(extractor_corr pow_bij).
 qed.
 
 end section SECURITY_EUF_KOA.
+
+section SECURITY_EUF_CMA.
+
+module type FAdv_CMA (SO : SOracle_CMA_ROM) = {
+  include Stoppable
+  include ForkingLRO.Rewindable
+}.
+
+module (FAdv_CMA_Runner (A : FAdv_CMA) : Adv_EUFCMA_ROM) (RO : Oracle) (SO : SOracle_CMA_ROM) = {
+  proc forge = Runner(A(SO), RO).run
+}.
+
+module (BoundedSO : Oracle_CMA_ROM) (RO : Oracle) (S : Scheme) = {
+  proc init       = O_CMA_ROM_Default(RO, S).init
+  proc nr_queries = O_CMA_ROM_Default(RO, S).nr_queries
+  proc fresh      = O_CMA_ROM_Default(RO, S).fresh
+
+  proc sign(m : msg_t) : sig_t = {
+    var n, s;
+
+    n <@ nr_queries();
+    if (n < QS) {
+      s <@ O_CMA_ROM_Default(RO, S).sign(m);
+    } else {
+      s <- witness;
+    }
+
+    return s;
+  }
+}.
+
+module Red_CMA_KOA (A : FAdv_CMA) : FAdv_KOA = {
+  var q : query_t
+  var m : (query_t, chal_t) fmap
+
+  proc program(q : query_t, r : chal_t) : chal_t = {
+    if (q \notin m) {
+      m.[q] <- r;
+    }
+    return oget m.[q];
+  }
+
+  module Simulator : SOracle_CMA_ROM = {
+    var pk : pk_t
+    var signed : msg_t list
+    var bad : bool
+
+    proc init(pk0 : pk_t) = {
+      pk <- pk0;
+      bad <- false;
+      signed <- [];
+    }
+
+    proc sign(msg : msg_t) : sig_t = {
+      var com, chal, resp, q, s;
+
+      if (size signed < QS) {
+        chal <$ dchal;
+        resp <$ dt;
+        com <- (g ^ resp) * (pk ^ -chal);
+
+        q <- (pk, com, msg);
+        if (q \in m) {
+          bad <- true;
+        }
+        m.[q] <- chal;
+
+        s <- (com, resp);
+        signed <- signed ++ [msg];
+      } else {
+        s <- witness;
+      }
+
+      return s;
+    }
+  }
+
+  (* FIXME: Need to handle global vars. *)
+  proc getState() : state_t = {
+    return witness;
+  }
+
+  proc setState(st : state_t) = {
+  }
+
+  proc init_loc(i : pk_t) = {
+    q <- witness;
+    m <- empty;
+    Simulator.init(i);
+  }
+
+  proc init_adv(i : pk_t) : query_t = {
+    q <@ A(Simulator).init(i);
+    return q;
+  }
+
+  proc init(i : pk_t) : query_t = {
+    var q;
+    init_loc(i);
+    q <@ init_adv(i);
+    return q;
+  }
+
+  proc continue(r : chal_t) : query_t = {
+    r <@ program(q, r);
+    q <@ A(Simulator).continue(r);
+    return q;
+  }
+
+  proc finish(r : chal_t) : msg_t * sig_t = {
+    var ms;
+    r <@ program(q, r);
+    ms <@ A(Simulator).finish(r);
+    return ms;
+  }
+}.
+
+declare module A <: FAdv_CMA {-Red_CMA_KOA, -LRO, -O_CMA_Default}.
+
+declare axiom A_init_ll : forall (SO <: SOracle_CMA_ROM),
+  islossless SO.sign => islossless A(SO).init.
+declare axiom A_continue_ll : forall (SO <: SOracle_CMA_ROM),
+  islossless SO.sign => islossless A(SO).continue.
+declare axiom A_finish_ll : forall (SO <: SOracle_CMA_ROM),
+  islossless SO.sign => islossless A(SO).finish.
+
+(* This module corresponds to FAdv_KOA_Runner(Red_CMA_KOA).
+ * Its function is to enable the application of the fel tactic. *)
+local module Red_Runner (A : FAdv_CMA) (O : Oracle) = {
+  module Red = Red_CMA_KOA(A)
+
+  var d : int
+
+  proc program(q : query_t, r : chal_t) : chal_t = {
+    (* This condition always evaluates to true when the procedure is called
+     * inside forge(). It allows us to easily establish the invariant
+     * fsize Red.m <= QR + QS needed for the analysis of the bad event. *)
+    if (d < QR) {
+      if (q \notin Red.m) {
+        Red.m.[q] <- r;
+      }
+      r <- oget Red.m.[q];
+      d <- d + 1;
+    }
+    return r;
+  }
+
+  proc forge(i : pk_t) : msg_t * sig_t = {
+    var o, q, r, c;
+
+    Red.init_loc(i);
+    d <- 0;
+    Red.q <@ A(Red.Simulator).init(i);
+    q <- Red.q;
+    c <- 1;
+    while (c < QR){
+      r <@ O.get(q);
+      r <@ program(Red.q, r);
+      Red.q <@ A(Red.Simulator).continue(r);
+      q <- Red.q;
+      c <- c + 1;
+    }
+    r <@ O.get(q);
+    r <@ program(Red.q, r);
+    o <@ A(Red.Simulator).finish(r);
+
+    return o;
+  }
+}.
+
+local lemma pr_bad_runner_eq &m pk :
+  Pr[FAdv_KOA_Runner(Red_CMA_KOA(A), LRO).forge(pk) @ &m : Red_CMA_KOA.Simulator.bad] =
+  Pr[Red_Runner(A, LRO).forge(pk) @ &m : Red_CMA_KOA.Simulator.bad].
+proof.
+byequiv => //.
+proc.
+inline Red_CMA_KOA(A).init Red_CMA_KOA(A).continue Red_CMA_KOA(A).finish.
+wp.
+call (_ : ={glob Red_CMA_KOA}); 1: sim.
+have program_equiv : forall d_val, equiv[
+  Red_CMA_KOA(A).program ~ Red_Runner(A, LRO).program :
+  ={arg, Red_CMA_KOA.m} /\ Red_Runner.d{2} = d_val /\ d_val < QR ==>
+  ={res, Red_CMA_KOA.m} /\ Red_Runner.d{2} = d_val + 1
+].
++ move => d_val.
+  proc.
+  rcondt {2} 1 => //.
+  auto.
+call (program_equiv (QR - 1)).
+wp.
+call (_ : ={glob LRO}); 1: sim.
+while (
+  ={glob A, glob Red_CMA_KOA, glob LRO, q, c} /\ c{2} <= QR /\ Red_Runner.d{2} = c{2} - 1
+).
++ wp => /=.
+  call (_ : ={glob Red_CMA_KOA}); 1: sim.
+  exlim Red_Runner.d{2} => d_val.
+  call (program_equiv d_val).
+  wp.
+  call (_ : ={glob LRO}); 1: sim.
+  auto => /#.
+inline Red_CMA_KOA(A).init_adv.
+wp.
+call (_ : ={glob Red_CMA_KOA}); 1: sim.
+wp.
+inline.
+auto => />.
+smt(QR_pos).
+qed.
+
+local lemma pr_bad_runner &m pk :
+  Pr[FAdv_KOA_Runner(Red_CMA_KOA(A), LRO).forge(pk) @ &m : Red_CMA_KOA.Simulator.bad] <=
+  QS%r * (QS + QR)%r / order%r.
+proof.
+rewrite pr_bad_runner_eq.
+fel
+  2
+  (size Red_CMA_KOA.Simulator.signed)
+  (fun ctr => (QS + QR)%r / order%r)
+  QS
+  Red_CMA_KOA.Simulator.bad
+  [
+    Red_Runner(A, RO.RO).Red.Simulator.sign : (size Red_CMA_KOA.Simulator.signed < QS);
+    Red_Runner(A, RO.RO).program : false
+  ]
+  (
+    fsize Red_CMA_KOA.m <= Red_Runner.d + size Red_CMA_KOA.Simulator.signed /\
+    Red_Runner.d <= QR /\ size Red_CMA_KOA.Simulator.signed <= QS) => //.
++ rewrite Bigreal.sumri_const //.
+  exact QS_ge0.
++ inline.
+  auto => />.
+  smt(QS_ge0 QR_pos fsize_empty).
++ move => b c.
+  proc.
+  auto => />.
+  smt(fsize_set).
++ proc.
+  rcondt 1; 1: auto.
+  seq 1 : true
+    1%r ((QS + QR)%r / order%r)
+    0%r _
+    (! Red_CMA_KOA.Simulator.bad /\ fsize Red_CMA_KOA.m <= QS + QR) => //.
+  + auto => /#.
+  inline.
+  wp => /=.
+  rnd.
+  skip => />.
+  move => &hr _ size_bound.
+  have : (fsize Red_CMA_KOA.m{hr})%r / order%r <= (QS + QR)%r / order%r.
+  + apply ler_pmul2r.
+    + smt(invr_gt0 gt0_order).
+    smt().
+  apply ler_trans.
+  pose P := (fun (q : query_t) (x : exp) => q.`2 = g ^ x * Red_CMA_KOA.Simulator.pk{hr} ^ -chal{hr}).
+  move : (mu_mem_le_fsize Red_CMA_KOA.m{hr} dt P (1%r / order%r) _).
+  + move => q _.
+    pose s := loge (q.`2 /  Red_CMA_KOA.Simulator.pk{hr} ^ -chal{hr}).
+    rewrite -(dt1E s).
+    apply mu_le.
+    move => x _ rel /=.
+    rewrite /pred1 /s rel.
+    by rewrite -mulcA mulcV mulcC mul1c loggK.
+  apply ler_trans.
+  apply mu_le => /#.
++ move => c.
+  proc; inline.
+  rcondt 1; 1: auto.
+  seq 5 : (
+    c = size Red_CMA_KOA.Simulator.signed /\ c < QS /\
+    fsize Red_CMA_KOA.m <= Red_Runner.d + size Red_CMA_KOA.Simulator.signed /\
+  Red_Runner.d <= QR /\ size Red_CMA_KOA.Simulator.signed <= QS
+  ); 1: auto.
+  auto.
+  smt(size_cat fsize_set).
++ move => b c.
+  proc.
+  rcondf 1; 1: auto.
+  auto.
+qed.
+
+local lemma pr_bad_game &m :
+  Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(Red_CMA_KOA(A))).main() @ &m : Red_CMA_KOA.Simulator.bad] <=
+  QS%r * (QS + QR)%r / order%r.
+proof.
+byphoare => //.
+proc.
+inline EUF_KOA.
+seq 3 : Red_CMA_KOA.Simulator.bad
+  (QS%r * (QS + QR)%r / order%r) 1%r _ 0%r => //.
++ call (_ : true ==> Red_CMA_KOA.Simulator.bad).
+  + bypr => &m0 /=.
+    exact pr_bad_runner.
+  auto.
+hoare.
+wp.
+by call (_ : true).
+qed.
+
+local op signed (qs : msg_t list) (q : query_t) = q.`3 \in qs.
+
+local op dom_supset ['a 'b] (m1 m2 : ('a, 'b) fmap) =
+  forall a, a \notin m1 => a \notin m2.
+
+(* Red_CMA_KOA.m is an "overlay" over LRO:
+ * - RO queries are routed to LRO. When LRO returns a response, Red_CMA_KOA.m
+ *   is set to this response unless the response is already fixed. In such case,
+     the old value takes precedence.
+ * - Red_CMA_KOA.m may contain values not present in LRO becaus Red_CMA_KOA.m
+     may be programmed by the Simulator (for signature queries). *)
+local op overlay (m m' : (query_t, chal_t) fmap) (qs : msg_t list) =
+  dom_supset m' m /\ eq_except (signed qs) m' m.
+
+local equiv simulator_equiv :
+  BoundedSO(LRO, Schnorr(LRO)).sign ~ Red_CMA_KOA(A).Simulator.sign :
+  ={arg} /\
+    O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
+    g ^ O_CMA_Default.sk{1} = Red_CMA_KOA.Simulator.pk{2} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2} ==>
+  !Red_CMA_KOA.Simulator.bad{2} => ={res} /\
+    O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2}.
+proof.
+proc.
+inline BoundedSO.
+sp.
+if => //; 2: auto.
+inline.
+seq 8 4 : (
+  r{1} = chal{2} /\ x{1} = q{2} /\ ={com} /\ (nonce + sk * r){1} = resp{2} /\ m0{1} = msg{2} /\
+  O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\ LRO.m{1} = Red_CMA_KOA.m{2} /\
+  overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2} /\ x{1}.`3 = m0{1}
+).
++ swap{1} 8 -7.
+  wp.
+  rnd (fun nonce, nonce + sk{1} * r{1}) (fun resp, resp - sk{1} * r{1}).
+  wp.
+  rnd.
+  skip => />.
+  progress; algebra.
+if {2}; 1: auto.
+rcondt{1} 1; 1: auto.
+auto => />.
+rewrite get_set_sameE cats1 /=.
+move => &2.
+pose ms := Red_CMA_KOA.Simulator.signed{2}; pose m := q{2}.`3.
+have signed_sub : predU (signed ms) (pred1 q{2}) <= signed (rcons ms m).
++ rewrite /(<=) /predU /signed => q.
+  smt(mem_rcons).
+smt(eq_exceptSm eq_except_sub mem_set).
+qed.
+
+local lemma ro_get_eq_except (X : query_t -> bool) :
+  equiv[LRO.get ~ LRO.get :
+    eq_except X LRO.m{1} LRO.m{2} /\ ={arg} /\ ! X arg{1} ==> ={res}
+  ].
+proof.
+proc.
+seq 1 1 : (#pre /\ ={r}); 1: auto.
+if.
++ smt(eq_except_notp_in).
++ auto; smt(eq_except_set_eq).
+auto => /#.
+qed.
+
+(* This is for outline purposes only. *)
+local module RedO = {
+  proc get(q : query_t) : resp_t = {
+    var r0, r1 : resp_t;
+    r0 <@ LRO.get(q);
+    r1 <- r0;
+    r1 <@ Red_CMA_KOA(A).program(Red_CMA_KOA.q, r1);
+    return r1;
+  }
+}.
+
+local equiv lro_redo_equiv :
+  LRO.get ~ RedO.get :
+  ={arg} /\ arg{2} = Red_CMA_KOA.q{2} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2} ==>
+  ={res} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2}.
+proof.
+proc; inline.
+sp.
+seq 1 1 : (#pre /\ ={r}); 1: auto.
+if {1}.
++ rcondt {2} 1; 1: auto => /#.
+  rcondt {2} 6; 1: auto.
+  auto; smt(get_set_sameE eq_except_set_eq mem_set).
+rcondf {2} 6; 1: auto.
+case (! signed Red_CMA_KOA.Simulator.signed{2} q{2}).
++ rcondf {2} 1.
+  + auto; smt(eq_except_notp_in).
+  auto.
+auto => />.
+move => &2 sup eq q_in q_signed _.
+pose signed_qs := signed Red_CMA_KOA.Simulator.signed{2}.
+have signed_U_pred1q : (predU signed_qs (pred1 Red_CMA_KOA.q{2})) = signed_qs by smt().
+smt(eq_exceptmS mem_set).
+qed.
+
+local equiv lro_redo_inv :
+  LRO.get ~ RedO.get :
+  !Red_CMA_KOA.Simulator.bad{2} => ={arg} /\ arg{2} = Red_CMA_KOA.q{2} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2} ==>
+  !Red_CMA_KOA.Simulator.bad{2} => ={res} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2}.
+proof.
+proc *.
+case (Red_CMA_KOA.Simulator.bad{2}).
++ inline; auto.
+call lro_redo_equiv.
+auto => /#.
+qed.
+
+local phoare simulator_bad_ll : [
+  Red_CMA_KOA(A).Simulator.sign : Red_CMA_KOA.Simulator.bad ==> Red_CMA_KOA.Simulator.bad
+] = 1%r.
+proof.
+proc.
+if; auto.
+smt(dchal_ll dt_ll).
+qed.
+
+local lemma pr_koa_cma &m :
+  (* FIXME: This is likely a bug in the theory? LRO should not be specified twice? *)
+  Pr[EUF_CMA_ROM(LRO, Schnorr, FAdv_CMA_Runner(A), BoundedSO, LRO).main() @ &m : res] <=
+  Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(Red_CMA_KOA(A))).main() @ &m : res] +
+  Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(Red_CMA_KOA(A))).main() @ &m : Red_CMA_KOA.Simulator.bad].
+proof.
+byequiv => //.
+proc.
+inline EUF_CMA EUF_KOA.
+swap{1} 6 -1.
+seq 4 3 : (!Red_CMA_KOA.Simulator.bad{2} =>
+  ={pk, m, sig} /\ eq_except (signed O_CMA_Default.qs{1}) LRO.m{1} LRO.m{2}
+); first last.
++ inline BoundedSO.
+  sp.
+  case (!is_fresh{1}).
+  + inline; auto.
+  case (Red_CMA_KOA.Simulator.bad{2}).
+  + inline; auto.
+  inline Schnorr.
+  wp.
+  exlim (O_CMA_Default.qs{1}) => qs.
+  call (ro_get_eq_except (signed qs)).
+  auto => /#.
+inline FAdv_CMA_Runner FAdv_KOA_Runner.
+inline Red_CMA_KOA -Red_CMA_KOA(A).program.
+outline {2} [18-20] r2 <@ RedO.get.
+wp.
+call (_ : Red_CMA_KOA.Simulator.bad,
+  O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
+  g ^ O_CMA_Default.sk{1} = Red_CMA_KOA.Simulator.pk{2} /\
+  LRO.m{1} = Red_CMA_KOA.m{2} /\
+  overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2}
+).
++ move => SO; exact (A_finish_ll SO).
++ conseq simulator_equiv => //.
++ move => _ _; islossless.
++ move => _; exact simulator_bad_ll.
+call lro_redo_inv.
+while (
+  ={pk, c} /\ q{2} = Red_CMA_KOA.q{2} /\
+  (!Red_CMA_KOA.Simulator.bad{2} =>
+    g ^ O_CMA_Default.sk{1} = Red_CMA_KOA.Simulator.pk{2} /\
+    ={glob A, q} /\ O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2})
+).
++ wp => /=.
+  outline {2} [1-3] r1 <@ RedO.get.
+  call (_ : Red_CMA_KOA.Simulator.bad,
+    O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
+    g ^ O_CMA_Default.sk{1} = Red_CMA_KOA.Simulator.pk{2} /\
+    LRO.m{1} = Red_CMA_KOA.m{2} /\
+    overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2}
+  ).
+  + move => SO; exact (A_continue_ll SO).
+  + conseq simulator_equiv => //.
+  + move => _ _; islossless.
+  + move => _; exact simulator_bad_ll.
+  call lro_redo_inv.
+  auto => /#.
+wp.
+call (_ : Red_CMA_KOA.Simulator.bad,
+  O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
+  g ^ O_CMA_Default.sk{1} = Red_CMA_KOA.Simulator.pk{2} /\
+  LRO.m{1} = Red_CMA_KOA.m{2} /\
+  overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2}
+).
++ move => SO; exact (A_init_ll SO).
++ conseq simulator_equiv => //.
++ move => _ _; islossless.
++ move => _; exact simulator_bad_ll.
+inline; auto => /#.
+qed.
+
+end section SECURITY_EUF_CMA.
