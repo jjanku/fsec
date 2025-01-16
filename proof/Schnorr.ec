@@ -518,7 +518,9 @@ module Red_CMA_KOA (A : FAdv_CMA) : FAdv_KOA = {
   }
 }.
 
-declare module A <: FAdv_CMA {-Red_CMA_KOA, -LRO, -O_CMA_Default}.
+declare module A <: FAdv_CMA {
+  -Red_CMA_KOA, -LRO, -O_CMA_Default, -AdvWrapper, -IForkerRO, -KeyGen, -ConstGen
+}.
 
 declare axiom A_init_ll : forall (SO <: SOracle_CMA_ROM),
   islossless SO.sign => islossless A(SO).init.
@@ -905,6 +907,51 @@ call (_ : Red_CMA_KOA.Simulator.bad,
 + move => _ _; islossless.
 + move => _; exact simulator_bad_ll.
 inline; auto => /#.
+qed.
+
+local lemma Red_CMA_KOA_rewindable :
+  exists (f : glob Red_CMA_KOA(A) -> state_t), injective f /\
+  (forall &m, Pr[Red_CMA_KOA(A).getState() @ &m : (glob Red_CMA_KOA(A)) = (glob Red_CMA_KOA(A)){m} /\ res = f (glob Red_CMA_KOA(A)){m}] = 1%r) /\
+  (forall &m st (x: glob Red_CMA_KOA(A)), st = f x => Pr[Red_CMA_KOA(A).setState(st) @ &m : glob Red_CMA_KOA(A) = x] = 1%r) /\
+  islossless Red_CMA_KOA(A).setState.
+proof.
+(* FIXME *)
+admit.
+qed.
+
+(* FIXME: Cannot do the following in the proof below?
+ *   apply (A_continue_ll (Red_CMA_KOA(A).Simulator)). *)
+local module Sim = Red_CMA_KOA(A).Simulator.
+
+(* TODO: We could play with this a little bit more. *)
+lemma schnorr_cma_secure &m :
+  let pr_cma_succ = Pr[EUF_CMA_ROM(LRO, Schnorr, FAdv_CMA_Runner(A), BoundedSO, LRO).main() @ &m : res] in
+  pr_cma_succ >= QS%r * (QS + QR)%r / order%r =>
+  Pr[Exp_DL(RedAdv(Red_CMA_KOA(A))).main() @ &m : res] >=
+    (pr_cma_succ - QS%r * (QS + QR)%r / order%r) ^ 2 / (QR + 1)%r - 1%r / (size (to_seq (support dchal)))%r.
+proof.
+pose pr_koa_succ := Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(Red_CMA_KOA(A))).main() @ &m : res].
+pose num_chal := (size (to_seq (support dchal)))%r.
+move => pr_cma_succ pr_cma_succ_ge.
+apply (ler_trans (pr_koa_succ ^ 2 / (QR + 1)%r - pr_koa_succ / num_chal)).
++ apply ler_sub => //.
+  + apply ler_pmul => //.
+    + apply ge0_sqr.
+    + smt(invr_ge0 QR_pos).
+    apply ler_pexp => //.
+    smt(pr_koa_cma pr_bad_game).
+  apply ler_pmul => //.
+  + smt(ge0_mu).
+  + smt(invr_ge0 size_ge0).
+  smt(le1_mu).
+apply (schnorr_koa_secure (Red_CMA_KOA(A))).
++ exact Red_CMA_KOA_rewindable.
++ islossless.
+  apply (A_continue_ll Sim).
+  islossless.
+islossless.
+apply (A_finish_ll Sim).
+islossless.
 qed.
 
 end section SECURITY_EUF_CMA.
