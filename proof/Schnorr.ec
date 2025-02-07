@@ -377,7 +377,7 @@ proc.
 wp.
 pose P_in  := (
   fun (arg : glob KeyGen * glob AdvWrapper(A)) =>
-    arg.`2.`6 = (glob A){m}
+    arg.`2.`1 = (glob A){m}
 ).
 pose P_out := (
   fun (arg : glob KeyGen * (query_t option * resp_t) * (query_t, chal_t) fmap) =>
@@ -748,8 +748,8 @@ seq 8 4 : (
 if {2}; 1: auto.
 rcondt{1} 1; 1: auto.
 auto => />.
+move => &1 &2.
 rewrite get_set_sameE cats1 /=.
-move => &2.
 pose ms := Red_CMA_KOA.Simulator.signed{2}; pose m := q{2}.`3.
 have signed_sub : predU (signed ms) (pred1 q{2}) <= signed (rcons ms m).
 + rewrite /(<=) /predU /signed => q.

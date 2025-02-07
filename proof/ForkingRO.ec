@@ -391,7 +391,7 @@ proc.
 wp.
 pose Red_P_in := (fun (arg : glob I * glob Red(F)) =>
   let (gI, gRed) = arg in
-  let (_, __, gF) = gRed in
+  let (gF, _, __) = gRed in
   P_in (gI, gF)
 ).
 pose Red_P_out := (fun (ret : glob I * (int * aux_t) * log_t list) =>
