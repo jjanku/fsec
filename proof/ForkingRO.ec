@@ -338,10 +338,10 @@ inline Runner RunnerRO.
 inline Red -Red(F).fix_resp.
 wp => /=.
 call (_ : true).
-outline {1} [9-11] r1 <@ RedO.get.
+outline {1} [9..11] ~ RedO.get.
 call redo_lro_equiv.
 while (={c, q, glob I, glob F} /\ Log.log{1} = Red.m{1} /\ ofassoc Red.m{1} = LRO.m{2} /\ q{1} = Red.q{1}).
-+ outline {1} [1-3] r0 <@ RedO.get.
++ outline {1} [1..3] ~ RedO.get.
   wp.
   call (_ : true).
   call redo_lro_equiv.

@@ -773,8 +773,8 @@ qed.
 (* This is for outline purposes only. *)
 local module RedO = {
   proc get(q : query_t) : resp_t = {
-    var r0, r1 : resp_t;
-    r0 <@ LRO.get(q);
+    var r0, r1 : chal_t;
+    r0 <@ RO.RO.get(q);
     r1 <- r0;
     r1 <@ Red_CMA_KOA(A).program(Red_CMA_KOA.q, r1);
     return r1;
@@ -860,7 +860,7 @@ seq 4 3 : (!Red_CMA_KOA.Simulator.bad{2} =>
   auto => /#.
 inline FAdv_CMA_Runner FAdv_KOA_Runner.
 inline Red_CMA_KOA -Red_CMA_KOA(A).program.
-outline {2} [18-20] r2 <@ RedO.get.
+outline {2} [18..20] ~ RedO.get.
 wp.
 call (_ : Red_CMA_KOA.Simulator.bad,
   O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
@@ -882,7 +882,7 @@ while (
     overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2})
 ).
 + wp => /=.
-  outline {2} [1-3] r1 <@ RedO.get.
+  outline {2} [1..3] ~ RedO.get.
   call (_ : Red_CMA_KOA.Simulator.bad,
     O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\
     g ^ O_CMA_Default.sk{1} = Red_CMA_KOA.Simulator.pk{2} /\

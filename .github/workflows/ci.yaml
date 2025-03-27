@@ -20,7 +20,7 @@ jobs:
 
       - name: install easycrypt
         run: |
-          opam pin add -n easycrypt https://github.com/EasyCrypt/easycrypt.git#r2025.02
+          opam pin add -n easycrypt https://github.com/EasyCrypt/easycrypt.git#r2025.03
           opam install easycrypt
       - name: detect SMT solvers
         run: opam exec -- easycrypt why3config
