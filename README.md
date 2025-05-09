@@ -1,6 +1,6 @@
-# Formalization of the Fiat-Shamir transformation in EasyCrypt
+# Formalization of the Forking Lemma and Fiat-Shamir Transformation in EasyCrypt
 
-WIP
+See the [eprint](https://eprint.iacr.org/2025/573) for more details about this project.
 
 ## Setup
 
