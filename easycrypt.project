@@ -4,3 +4,4 @@ provers = CVC5@1.0
 provers = Z3@4.12
 
 rdirs = ./proof/
+rdirs = ./deps/
