@@ -13,13 +13,13 @@ theory FinApprox.
 
 section.
 
-local lemma nosmt le3 ['a] : forall (d : 'a distr),  
+local lemma le3 ['a] : forall (d : 'a distr),  
    mu d predT = sum (fun (x : 'a) =>  mass d x).
 proof.  progress. 
 rewrite muE. rewrite /predT. simplify. smt(massE).
 qed.
 
-local lemma nosmt le4 ['a] :  forall (d : 'a distr),  
+local lemma le4 ['a] :  forall (d : 'a distr),  
    summable (fun (x : 'a) => mass d x).
 proof. progress.
 exists 1%r. move => J ju. 
@@ -38,7 +38,7 @@ apply ju.
 qed.
 
 
-local lemma nosmt le5 ['a] :  forall (d : 'a distr), 
+local lemma le5 ['a] :  forall (d : 'a distr), 
   exists (J : int -> 'a option),
   enumerate J (support (mass d)).
 proof. progress.
@@ -46,7 +46,7 @@ apply sum_to_enum. apply le4.
 qed.
 
 
-local lemma nosmt le6 ['a] : forall (d : 'a distr), 
+local lemma le6 ['a] : forall (d : 'a distr), 
   exists (J : int -> 'a option),
   enumerate J (support (mass d)) /\
   mu d predT = lim (fun (n : int) => big predT (mass d) (pmap J (range 0 n))).
@@ -305,7 +305,7 @@ clone import Reflection.Refl with type rt <- rt,
 declare module A  <: RunnableRefl.
 
 
-local lemma nosmt ex_distr_with_glob :
+local lemma ex_distr_with_glob :
    exists (D : (glob A) -> at -> (rt * glob A) distr),
    forall  &m M a, mu (D (glob A){m} a) M = Pr[ A.main(a) @ &m : M (res, glob A) ].
 proof.
@@ -313,7 +313,7 @@ apply (reflection A).
 qed.
 
 
-local lemma nosmt ex_distr_without_glob :
+local lemma ex_distr_without_glob :
    exists (D : (glob A) -> at -> rt distr),
    forall &m M a, mu (D (glob A){m} a) M = Pr[ A.main(a) @ &m : M res ].
 proof.
