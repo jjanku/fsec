@@ -1,2 +1,4 @@
 # EasyCrypt verification results
 *.eco
+# Editor files
+.vscode
