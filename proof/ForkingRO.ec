@@ -13,6 +13,10 @@ pragma Goals:printall.
 require import AllCore List FMap.
 
 type state_t.
+op pair_st : state_t * state_t -> state_t.
+op unpair_st : state_t -> state_t * state_t.
+axiom pair_st_inj : injective pair_st.
+axiom pair_st_can : cancel pair_st unpair_st.
 
 type in_t, aux_t.
 
@@ -20,10 +24,12 @@ type query_t, resp_t.
 op [lossless uniform] dresp : resp_t distr.
 const Q : {int | 1 <= Q} as Q_pos.
 
-(* TODO: Same patter as in Forking.ro. Is it idiomatic? *)
+(* TODO: Same pattern as in Forking.ec. Is it idiomatic? *)
 require Forking.
 clone import Forking as ForkingLRO with
   type state_t <- state_t,
+  op   pair_st   <- pair_st,
+  op   unpair_st <- unpair_st,
   type query_t <- query_t,
   type resp_t  <- resp_t,
   op   dresp   <- dresp,
@@ -34,6 +40,8 @@ proof *.
 realize Q_pos     by exact Q_pos.
 realize dresp_ll  by exact dresp_ll.
 realize dresp_uni by exact dresp_uni.
+realize pair_st_inj by exact pair_st_inj.
+realize pair_st_can by exact pair_st_can.
 
 (* NOTE: We don't use the programming capabilities.
  * PROM was chosen instead of ROM because in conforms
@@ -269,6 +277,8 @@ declare axiom F_rewindable :
   (forall &m st (x: glob F), st = f x => Pr[F.setState(st) @ &m : glob F = x] = 1%r) /\
   islossless F.setState.
 
+declare axiom I_gen_ll : islossless I.gen.
+declare axiom F_init_ll : islossless F.init.
 declare axiom F_continue_ll : islossless F.continue.
 declare axiom F_finish_ll : islossless F.finish.
 
@@ -279,6 +289,11 @@ local lemma Red_F_rewindable :
   islossless Red(F).setState.
 proof.
 admit.
+qed.
+
+local lemma Red_F_init_ll : islossless Red(F).init.
+proof.
+islossless; exact F_init_ll.
 qed.
 
 local lemma Red_F_continue_ll : islossless Red(F).continue.
@@ -403,7 +418,7 @@ pose Red_P_out := (fun (ret : glob I * (int * aux_t) * log_t list) =>
 ).
 call (
   forking_lemma I (Red(F))
-  Red_F_rewindable Red_F_continue_ll Red_F_finish_ll
+  Red_F_rewindable I_gen_ll Red_F_init_ll Red_F_continue_ll Red_F_finish_ll
   Red_P_in Red_P_out _ pr_success _
 ).
 + conseq red_log_fro_lro_equiv success_impl; 1: smt().

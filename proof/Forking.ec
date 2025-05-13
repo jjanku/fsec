@@ -13,14 +13,6 @@ import RField RealOrder Bigreal BRA.
 require Stopping.
 require import SquareConvex.
 
-(* FIXME: Properly import Rewindable form easycrypt-rewinding. *)
-type state_t.
-
-module type Rewindable = {
-  proc getState() : state_t
-  proc setState(st : state_t) : unit
-}.
-
 (* Input & auxiliary output type. *)
 type in_t, aux_t.
 
@@ -67,6 +59,34 @@ module Log(O : Oracle) : Oracle = {
     log <- log ++ [(q, r)];
     return r;
   }
+}.
+
+type state_t.
+op pair_st : state_t * state_t -> state_t.
+op unpair_st : state_t -> state_t * state_t.
+axiom pair_st_inj : injective pair_st.
+axiom pair_st_can : cancel pair_st unpair_st.
+
+require RewWithInit.
+clone RewWithInit.RWI as Rewinding with
+  type sbits <- state_t,
+  type iat   <- int,
+  type irt   <- query_t * int * (log_t list),
+  type rrt   <- out_t * (log_t list),
+  op pair_sbits <- pair_st,
+  op unpair     <- unpair_st
+proof *.
+realize ips by exact pair_st_inj.
+(* FIXME: Why isn't this proved in the cloned theory? *)
+realize RW.ips by exact pair_st_inj.
+realize unpair_pair by exact pair_st_can.
+(* Ditto. *)
+realize RW.unpair_pair by exact pair_st_can.
+
+(* FIXME: Import form Rewinding.RW? *)
+module type Rewindable = {
+  proc getState() : state_t
+  proc setState(st : state_t) : unit
 }.
 
 (* TODO: Generalize to other oracles as well?
@@ -301,6 +321,10 @@ declare axiom F_rewindable :
   (forall &m, Pr[F.getState() @ &m : (glob F) = (glob F){m} /\ res = f (glob F){m}] = 1%r) /\
   (forall &m st (x: glob F), st = f x => Pr[F.setState(st) @ &m : glob F = x] = 1%r) /\
   islossless F.setState.
+
+(* NOTE: These two could be avoided if we used the alternative version of the rewinding lemma. *)
+declare axiom I_gen_ll : islossless I.gen.
+declare axiom F_init_ll : islossless F.init.
 
 declare axiom F_continue_ll : islossless F.continue.
 declare axiom F_finish_ll : islossless F.finish.
@@ -806,8 +830,7 @@ local module InitWrapper(I : IGen, F : Forkable) = {
 }.
 
 local module RewindWrapper(I : IGen, F : Forkable) = {
-  (* FIXME: Need to handle bad var in SplitForker and
-   * show that this module is rewindable. *)
+  (* FIXME: Need to handle log in SplitForker. *)
   proc getState() : state_t = {
     var st;
     st <@ F.getState();
@@ -827,30 +850,18 @@ local module RewindWrapper(I : IGen, F : Forkable) = {
   }
 }.
 
-(* This matches the QQ module in easycrypt-rewinding. *)
-(* FIXME: Clone and instantiate RewWithInit.. *)
-local type iat = int.
-local module InitRewinder(I : IGen, F : Forkable) = {
-  module A = RewindWrapper(I, F)
-  module B = InitWrapper(I, F)
+local lemma wrapper_rewindable :
+  exists (f : glob RewindWrapper(I, F) -> state_t), injective f /\
+  (forall &m, Pr[RewindWrapper(I, F).getState() @ &m : (glob RewindWrapper(I, F)) = (glob RewindWrapper(I, F)){m} /\ res = f (glob RewindWrapper(I, F)){m}] = 1%r) /\
+  (forall &m st (x: glob RewindWrapper(I, F)), st = f x => Pr[RewindWrapper(I, F).setState(st) @ &m : glob RewindWrapper(I, F) = x] = 1%r) /\
+  islossless RewindWrapper(I, F).setState.
+proof.
+(* FIXME. *)
+admit.
+qed.
 
-  proc main(i:iat) = {
-    var s, r0, r1, r2;
-    r0 <@ B.init(i);
-    s <@ A.getState();
-    r1 <@ A.run(r0);
-    A.setState(s);
-    r2 <@ A.run(r0);
-    return ((r0,r1), (r0, r2));
-  }
-
-  proc main_run(i:iat) = {
-    var r, r0;
-    r0 <@ B.init(i);
-    r <@ A.run(r0);
-    return (r0, r);
-  }
-}.
+local module InitRewinder(I : IGen, F : Forkable) =
+  Rewinding.QQ(RewindWrapper(I, F), InitWrapper(I, F)).
 
 local equiv rewinder_run_equiv :
   InitRewinder(I, F).main_run ~ SplitForker(I, F).fst :
@@ -858,7 +869,7 @@ local equiv rewinder_run_equiv :
   ={glob I, glob F} /\ res{1}.`2 = (res{2}.`1, res{2}.`2).
 proof.
 proc => /=.
-inline InitRewinder.
+inline InitWrapper RewindWrapper.
 wp.
 call (_ : ={glob F}); 1: sim.
 wp.
@@ -919,7 +930,7 @@ local lemma init_rew_split_equiv j :
 proof.
 move => j_range.
 proc => /=.
-inline InitRewinder SplitForker(I, F).fst.
+inline InitWrapper RewindWrapper SplitForker(I, F).fst.
 wp.
 call (_ : ={glob F}); 1: sim.
 wp.
@@ -999,6 +1010,37 @@ move => j_range.
 byequiv (init_rew_split_equiv j j_range) => /#.
 qed.
 
+local lemma split_fst_partial_ll : islossless SplitForker(I, F).fst_partial.
+proof.
+islossless; first last.
++ exact F_init_ll.
++ exact I_gen_ll.
+while (true) (C - c); 2: auto => /#.
+move => v.
+wp.
+call F_continue_ll.
+call (_ : true); 1: islossless.
+wp.
+call get_st_ll.
+skip => /#.
+qed.
+
+local lemma split_snd_ll : islossless SplitForker(I, F).snd.
+proof.
+islossless.
++ apply F_finish_ll.
++ apply get_st_ll.
+while (true) (Q - c); 2: auto => /#.
+move => v.
+wp.
+call F_continue_ll.
+wp.
+call (_ : true); 1: islossless.
+wp.
+call get_st_ll.
+skip => /#.
+qed.
+
 local lemma pr_fork_specific &m j :
   0 <= j < Q =>
   Pr[IForker(I, F).run() @ &m : IForker.j1 = j /\ IForker.j2 = j] >=
@@ -1010,8 +1052,18 @@ move : (pr_run2_ineq &m j).
 apply ler_trans.
 rewrite pr_wrapper_run //.
 rewrite pr_wrapper_main //.
-(* FIXME: Apply rew_with_init. *)
-admit.
+apply (Rewinding.rew_with_init
+  (RewindWrapper(I, F)) (InitWrapper(I, F))
+  _ _ wrapper_rewindable _ _
+  &m (fun (r : (query_t * int * log_t list) * (out_t * log_t list)) => r.`2.`1.`1 = j)
+).
+(* FIXME: Why does the rewinding theory include these assumptions? *)
++ sim.
++ sim.
++ proc.
+  wp; call split_snd_ll; auto.
+proc.
+call split_fst_partial_ll => //.
 qed.
 
 (* STEP 3:
@@ -1122,22 +1174,6 @@ apply snd_forall.
 smt(Q_pos).
 qed.
 
-local lemma split_snd_ll : islossless SplitForker(I, F).snd.
-proof.
-islossless.
-+ apply F_finish_ll.
-+ apply get_st_ll.
-while (true) (Q - c); 2: auto => /#.
-move => v.
-wp.
-call F_continue_ll.
-wp.
-call (_ : true); 1: islossless.
-wp.
-call get_st_ll.
-skip => /#.
-qed.
-
 (* NOTE: This lemma could have been used above to show this inequality:
  *   Pr[SplitForker(F).run1(i, j) @ &m : res.`1 = j /\ res.`2 = j] >=
  *   Pr[SplitForker(F).run2(i, j) @ &m : res.`1 = j /\ res.`2 = j].
@@ -1173,7 +1209,7 @@ local equiv init_rew_snd_equiv :
 proof.
 proc => /=.
 call (_ : ={glob F}); 1: sim.
-inline InitRewinder(I, F).A.getState InitRewinder(I, F).A.setState.
+inline RewindWrapper(I, F).getState RewindWrapper(I, F).setState.
 elim F_rewindable => enc_glob [_ [get_st_pr [set_st_pr set_st_ll]]].
 have set_st_ph : forall gF,
   phoare[F.setState : arg = enc_glob gF ==> (glob F) = gF] = 1%r.
@@ -1181,7 +1217,7 @@ have set_st_ph : forall gF,
   bypr => &m.
   by apply set_st_pr.
 ecall {1} (set_st_ph (glob F){2}).
-inline InitRewinder(I, F).A.run.
+inline RewindWrapper(I, F).run.
 wp.
 call {1} split_snd_ll.
 wp.

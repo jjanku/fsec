@@ -130,7 +130,7 @@ clone import ForkingRO as AdvForkingRO with
   type resp_t  <- chal_t,
   op   dresp   <- dchal,
   op   Q       <- QR + 1
-proof *.
+proof Q_pos, dresp_ll, dresp_uni.
 realize Q_pos     by smt(QR_pos).
 realize dresp_ll  by exact dchal_ll.
 realize dresp_uni by exact dchal_uni.
@@ -226,6 +226,7 @@ declare axiom A_rewindable :
   (forall &m st (x: glob A), st = f x => Pr[A.setState(st) @ &m : glob A = x] = 1%r) /\
   islossless A.setState.
 
+declare axiom A_init_ll : islossless A.init.
 declare axiom A_continue_ll : islossless A.continue.
 declare axiom A_finish_ll : islossless A.finish.
 
@@ -238,6 +239,11 @@ local lemma Wrap_A_rewindable :
 proof.
 (* FIXME *)
 admit.
+qed.
+
+local lemma Wrap_A_init_ll : islossless AdvWrapper(A).init.
+proof.
+islossless; exact A_init_ll.
 qed.
 
 local lemma Wrap_A_continue_ll : islossless AdvWrapper(A).continue.
@@ -389,10 +395,11 @@ pose P_out := (
 call (
   forking_lemma_ro
   KeyGen (AdvWrapper(A))
-  Wrap_A_rewindable Wrap_A_continue_ll Wrap_A_finish_ll
+  Wrap_A_rewindable _ Wrap_A_init_ll Wrap_A_continue_ll Wrap_A_finish_ll
   P_in P_out
   _ Pr[EUF_KOA_ROM(LRO, Schnorr, FAdv_KOA_Runner(A)).main() @ &m : res]  _
 ); rewrite /P_in /P_out /=.
++ islossless.
 + conseq success_impl_verify => /#.
 + bypr => &m0 mem_eqs.
   byequiv wrap_koa_success_equiv => /#.
@@ -946,6 +953,9 @@ apply (ler_trans (pr_koa_succ ^ 2 / (QR + 1)%r - pr_koa_succ / num_chal)).
   smt(le1_mu).
 apply (schnorr_koa_secure (Red_CMA_KOA(A))).
 + exact Red_CMA_KOA_rewindable.
++ islossless.
+  apply (A_init_ll Sim).
+  islossless.
 + islossless.
   apply (A_continue_ll Sim).
   islossless.
