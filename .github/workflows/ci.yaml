@@ -27,3 +27,6 @@ jobs:
 
       - name: test proof
         run: opam exec -- easycrypt runtest tests.config proof
+
+      - name: test deps
+        run: opam exec -- easycrypt runtest tests.config deps

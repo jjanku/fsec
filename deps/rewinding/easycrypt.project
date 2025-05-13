@@ -1,0 +1,6 @@
+[general]
+provers = Alt-Ergo@2.5
+provers = CVC4@1.8
+provers = Z3@4.12
+
+timeout = 30
