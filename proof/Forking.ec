@@ -11,6 +11,7 @@ pragma Goals:printall.
 require import AllCore List Distr DInterval Finite StdOrder StdBigop RealFun.
 import RField RealOrder Bigreal BRA.
 require Stopping.
+require import SquareConvex.
 
 (* FIXME: Properly import Rewindable form easycrypt-rewinding. *)
 type state_t.
@@ -1020,14 +1021,6 @@ qed.
  * Now we need to assemble the sum of squares back into a single
  * event.
  *)
-
-local op square (x : real) = x ^ 2.
-
-local lemma square_convex : forall (a b : real), convex square a b.
-proof.
-(* FIXME: Import the lemma from easycrypt-rewinding. *)
-admit.
-qed.
 
 local lemma square_sum (n : int) (f : int -> real) :
   (1 <= n) =>
