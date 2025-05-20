@@ -24,6 +24,23 @@ type query_t, resp_t.
 op [lossless uniform] dresp : resp_t distr.
 const Q : {int | 1 <= Q} as Q_pos.
 
+op int2st : int -> state_t.
+op st2int : state_t -> int.
+axiom int2st_inj : injective int2st.
+axiom int2st_can : cancel int2st st2int.
+
+op q2st : query_t -> state_t.
+op st2q : state_t -> query_t.
+axiom q2st_inj : injective q2st.
+axiom q2st_can : cancel q2st st2q.
+
+op r2st : resp_t -> state_t.
+op st2r : state_t -> resp_t.
+axiom r2st_inj : injective r2st.
+axiom r2st_can : cancel r2st st2r.
+
+type log_t = query_t * resp_t.
+
 (* TODO: Same pattern as in Forking.ec. Is it idiomatic? *)
 require Forking.
 clone import Forking as ForkingLRO with
@@ -35,13 +52,28 @@ clone import Forking as ForkingLRO with
   op   dresp   <- dresp,
   op   Q       <- Q,
   type in_t    <- in_t,
-  type aux_t   <- aux_t
+  type aux_t   <- aux_t,
+  type log_t   <- log_t,
+  op   q2st    <- q2st,
+  op   st2q    <- st2q,
+  op   r2st    <- r2st,
+  op   st2r    <- st2r,
+  op   int2st  <- int2st,
+  op   st2int  <- st2int
 proof *.
 realize Q_pos     by exact Q_pos.
 realize dresp_ll  by exact dresp_ll.
 realize dresp_uni by exact dresp_uni.
 realize pair_st_inj by exact pair_st_inj.
 realize pair_st_can by exact pair_st_can.
+realize q2st_inj by exact q2st_inj.
+realize q2st_can by exact q2st_can.
+realize r2st_inj by exact r2st_inj.
+realize r2st_can by exact r2st_can.
+realize int2st_inj by exact int2st_inj.
+realize int2st_can by exact int2st_can.
+
+import St LogState.
 
 (* NOTE: We don't use the programming capabilities.
  * PROM was chosen instead of ROM because in conforms
@@ -161,15 +193,18 @@ module Red(F : ForkableRO) : Forkable = {
    * we can find the index of the critical query easily. *)
   var m : log_t list
 
-  (* FIXME: Need to handle the global vars above. *)
   proc getState() : state_t = {
-    var st;
-    st <@ F.getState();
-    return st;
+    var gF_st;
+    gF_st <@ F.getState();
+    return tuple3_st (gF_st, log2st m, q2st q);
   }
 
   proc setState(st : state_t) = {
-    F.setState(st);
+    var gF_st, m_st, q_st;
+    (gF_st, m_st, q_st) <- untuple3_st st;
+    F.setState(gF_st);
+    m <- st2log m_st;
+    q <- st2q q_st;
   }
 
   proc init(i : in_t) : query_t = {
@@ -288,7 +323,24 @@ local lemma Red_F_rewindable :
   (forall &m st (x: glob Red(F)), st = f x => Pr[Red(F).setState(st) @ &m : glob Red(F) = x] = 1%r) /\
   islossless Red(F).setState.
 proof.
-admit.
+elim (Rewinding.RW.rewindable_A F F_rewindable).
+move => gF2st [gF2st_inj [F_get_st_prop [F_set_st_prop F_set_st_ll]]].
+exists (fun (gRedF : glob Red(F)) =>
+  tuple3_st (gF2st gRedF.`1, log2st gRedF.`2, q2st gRedF.`3)) => /=.
+do split.
++ smt(tuple3_st_inj log2st_inj q2st_inj).
++ move => &m.
+  byphoare (_ : (glob Red(F)) = (glob Red(F)){m} ==> _) => //.
+  proc.
+  call (F_get_st_prop (glob F){m}) => //.
++ move => &m st gRedF st_pair_eq.
+  byphoare (_ : arg = st ==> _) => //.
+  proc.
+  wp.
+  call (F_set_st_prop gRedF.`1).
+  auto => />.
+  smt(tuple3_st_can log2st_can q2st_can).
+islossless.
 qed.
 
 local lemma Red_F_init_ll : islossless Red(F).init.

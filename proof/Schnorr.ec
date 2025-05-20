@@ -135,6 +135,54 @@ realize Q_pos     by smt(QR_pos).
 realize dresp_ll  by exact dchal_ll.
 realize dresp_uni by exact dchal_uni.
 
+import ForkingLRO.St.
+
+op group2st : group -> state_t.
+op st2group : state_t -> group.
+axiom group2st_inj : injective group2st.
+axiom group2st_can : cancel group2st st2group.
+
+op msg2st : msg_t -> state_t.
+op st2msg : state_t -> msg_t.
+axiom msg2st_inj : injective msg2st.
+axiom msg2st_can : cancel msg2st st2msg.
+
+op query2st (q : query_t) : state_t =
+  tuple3_st (group2st q.`1, group2st q.`2, msg2st q.`3).
+op st2query st = let (pk_st, com_st, msg_st) = untuple3_st st in
+  (st2group pk_st, st2group com_st, st2msg msg_st).
+lemma query2st_inj : injective query2st by smt(tuple3_st_inj group2st_inj msg2st_inj).
+lemma query2st_can : cancel query2st st2query by smt(tuple3_st_can group2st_can msg2st_can).
+
+op exp2st (e : exp) : state_t = int2st (asint e).
+op st2exp st = inzmod (st2int st).
+lemma exp2st_inj : injective exp2st by smt(int2st_inj asint_inj).
+lemma exp2st_can : cancel exp2st st2exp by smt(int2st_can asintK).
+
+op bool2st (b : bool) : state_t = int2st (if b then 1 else 0).
+op st2bool st = if st2int st = 1 then true else false.
+lemma bool2st_inj : injective bool2st by smt(int2st_inj).
+lemma bool2st_can : cancel bool2st st2bool by smt(int2st_can).
+
+(* TODO: Would be nice to derive this operator using query2st and exp2st. *)
+op qmap2st : (query_t, chal_t) fmap -> state_t.
+op st2qmap : state_t -> (query_t, chal_t) fmap.
+axiom qmap2st_inj : injective qmap2st.
+axiom qmap2st_can : cancel qmap2st st2qmap.
+
+clone import ListState as MsgsState with
+  type elem_t  <- msg_t,
+  op   elem2st <- msg2st,
+  op   st2elem <- st2msg,
+  op   int2st  <- int2st,
+  op   st2int  <- st2int
+  rename "list" as "msgs"
+proof *.
+realize elem2st_inj by exact msg2st_inj.
+realize elem2st_can by exact msg2st_can.
+realize int2st_inj by exact int2st_inj.
+realize int2st_can by exact int2st_can.
+
 section SECURITY_EUF_KOA.
 
 module (FAdv_KOA_Runner (A : Stoppable) : Adv_EUFKOA_ROM) (O : Oracle) = {
@@ -157,15 +205,23 @@ module AdvWrapper (A : FAdv_KOA) : ForkableRO = {
   var com : com_t
   var resp : resp_t
 
-  (* FIXME: Need to handle global vars. *)
   proc getState() : state_t = {
-    var st;
-    st <@ A.getState();
-    return st;
+    var gA_st;
+    gA_st <@ A.getState();
+    return tuple6_st (
+      gA_st, int2st c, group2st com, group2st pk, query2st q, exp2st resp
+    );
   }
 
   proc setState(st : state_t) = {
-    A.setState(st);
+    var gA_st, c_st, com_st, pk_st, q_st, resp_st;
+    (gA_st, c_st, com_st, pk_st, q_st, resp_st) <- untuple6_st st;
+    A.setState(gA_st);
+    c    <- st2int c_st;
+    com  <- st2group com_st;
+    pk   <- st2group pk_st;
+    q    <- st2query q_st;
+    resp <- st2exp resp_st;
   }
 
   proc init(i : pk_t) : query_t = {
@@ -237,8 +293,26 @@ local lemma Wrap_A_rewindable :
   (forall &m st (x: glob AdvWrapper(A)), st = f x => Pr[AdvWrapper(A).setState(st) @ &m : glob AdvWrapper(A) = x] = 1%r) /\
   islossless AdvWrapper(A).setState.
 proof.
-(* FIXME *)
-admit.
+elim (ForkingLRO.Rewinding.RW.rewindable_A A A_rewindable).
+move => gA2st [gA2st_inj [A_get_st_prop [A_set_st_prop A_set_st_ll]]].
+exists (fun (gWrap : glob AdvWrapper(A)) =>
+  let (gA, c, com, pk, q, resp) = gWrap in
+  tuple6_st (gA2st gA, int2st c, group2st com, group2st pk, query2st q, exp2st resp)
+) => /=.
+do split.
++ smt(tuple6_st_inj int2st_inj group2st_inj query2st_inj exp2st_inj).
++ move => &m.
+  byphoare (_ : (glob AdvWrapper(A)) = (glob AdvWrapper(A)){m} ==> _) => //.
+  proc.
+  call (A_get_st_prop (glob A){m}) => //.
++ move => &m st gWrap st_tuple_eq.
+  byphoare (_ : arg = st ==> _) => //.
+  proc.
+  wp.
+  call (A_set_st_prop gWrap.`1).
+  auto => />.
+  smt(tuple6_st_can int2st_can group2st_can query2st_can exp2st_can).
+islossless.
 qed.
 
 local lemma Wrap_A_init_ll : islossless AdvWrapper(A).init.
@@ -413,7 +487,9 @@ section SECURITY_EUF_CMA.
 
 module type FAdv_CMA (SO : SOracle_CMA_ROM) = {
   include Stoppable
-  include ForkingLRO.Rewindable
+  (* NOTE: The empty curly braces indicate that the getState, setState
+   * procedures cannot access the signing oracle *)
+  include ForkingLRO.Rewindable {}
 }.
 
 module (FAdv_CMA_Runner (A : FAdv_CMA) : Adv_EUFCMA_ROM) (RO : Oracle) (SO : SOracle_CMA_ROM) = {
@@ -485,12 +561,24 @@ module Red_CMA_KOA (A : FAdv_CMA) : FAdv_KOA = {
     }
   }
 
-  (* FIXME: Need to handle global vars. *)
   proc getState() : state_t = {
-    return witness;
+    var gA_st;
+    gA_st <@ A(Simulator).getState();
+    return tuple6_st (
+      gA_st, qmap2st m, query2st q,
+      bool2st Simulator.bad, group2st Simulator.pk, msgs2st Simulator.signed
+    );
   }
 
   proc setState(st : state_t) = {
+    var gA_st, m_st, q_st, bad_st, pk_st, signed_st;
+    (gA_st, m_st, q_st, bad_st, pk_st, signed_st) <- untuple6_st st;
+    A(Simulator).setState(gA_st);
+    m <- st2qmap m_st;
+    q <- st2query q_st;
+    Simulator.bad <- st2bool bad_st;
+    Simulator.pk  <- st2group pk_st;
+    Simulator.signed <- st2msgs signed_st;
   }
 
   proc init_loc(i : pk_t) = {
@@ -528,6 +616,17 @@ module Red_CMA_KOA (A : FAdv_CMA) : FAdv_KOA = {
 declare module A <: FAdv_CMA {
   -Red_CMA_KOA, -LRO, -O_CMA_Default, -AdvWrapper, -IForkerRO, -KeyGen, -ConstGen
 }.
+
+(* NOTE: The formulation here differs from the other occurences
+ * by the universal quantification over the signing oracle.
+ * This is needed so that we can call the getState/setState
+ * even though A cannot use the signing oracle in these procedures
+ * (see FAdv_CMA). *)
+declare axiom A_rewindable : forall (SO <: SOracle_CMA_ROM),
+  exists (f : glob A -> state_t), injective f /\
+  (forall &m, Pr[A(SO).getState() @ &m : (glob A) = (glob A){m} /\ res = f (glob A){m}] = 1%r) /\
+  (forall &m st (x: glob A), st = f x => Pr[A(SO).setState(st) @ &m : glob A = x] = 1%r) /\
+  islossless A(SO).setState.
 
 declare axiom A_init_ll : forall (SO <: SOracle_CMA_ROM),
   islossless SO.sign => islossless A(SO).init.
@@ -916,19 +1015,42 @@ call (_ : Red_CMA_KOA.Simulator.bad,
 inline; auto => /#.
 qed.
 
+(* FIXME: Cannot do the following in the two proofs below?
+ *   apply (A_continue_ll (Red_CMA_KOA(A).Simulator)). *)
+local module Sim = Red_CMA_KOA(A).Simulator.
+
 local lemma Red_CMA_KOA_rewindable :
   exists (f : glob Red_CMA_KOA(A) -> state_t), injective f /\
   (forall &m, Pr[Red_CMA_KOA(A).getState() @ &m : (glob Red_CMA_KOA(A)) = (glob Red_CMA_KOA(A)){m} /\ res = f (glob Red_CMA_KOA(A)){m}] = 1%r) /\
   (forall &m st (x: glob Red_CMA_KOA(A)), st = f x => Pr[Red_CMA_KOA(A).setState(st) @ &m : glob Red_CMA_KOA(A) = x] = 1%r) /\
   islossless Red_CMA_KOA(A).setState.
 proof.
-(* FIXME *)
-admit.
+elim (A_rewindable Sim).
+move => gA2st [gA2st_inj [A_get_st_prop [A_set_st_prop A_set_st_ll]]].
+exists (fun (gRed : glob Red_CMA_KOA(A)) =>
+  let (gA, m, q, bad, pk, signed) = gRed in
+  tuple6_st (gA2st gA, qmap2st m, query2st q, bool2st bad, group2st pk, msgs2st signed
+    )
+) => /=.
+do split.
++ smt(tuple6_st_inj qmap2st_inj query2st_inj bool2st_inj group2st_inj msgs2st_inj).
++ move => &m.
+  byphoare (_ : (glob Red_CMA_KOA(A)) = (glob Red_CMA_KOA(A)){m} ==> _) => //.
+  proc.
+  call (_ : (glob A) = (glob A){m} ==> (glob A) = (glob A){m} /\ res = gA2st (glob A){m}) => //.
+  bypr => &m0 <-.
+  apply A_get_st_prop.
++ move => &m st gRed st_tuple_eq.
+  byphoare (_ : arg = st ==> _) => //.
+  proc.
+  wp.
+  call (_ : arg = gA2st gRed.`1 ==> (glob A) = gRed.`1).
+  + bypr => &m0 ->.
+    by apply A_set_st_prop.
+  auto => />.
+  smt(tuple6_st_can qmap2st_can query2st_can bool2st_can group2st_can msgs2st_can).
+islossless.
 qed.
-
-(* FIXME: Cannot do the following in the proof below?
- *   apply (A_continue_ll (Red_CMA_KOA(A).Simulator)). *)
-local module Sim = Red_CMA_KOA(A).Simulator.
 
 (* TODO: We could play with this a little bit more. *)
 lemma schnorr_cma_secure &m :

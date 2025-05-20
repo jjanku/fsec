@@ -89,6 +89,43 @@ module type Rewindable = {
   proc setState(st : state_t) : unit
 }.
 
+op int2st : int -> state_t.
+op st2int : state_t -> int.
+axiom int2st_inj : injective int2st.
+axiom int2st_can : cancel int2st st2int.
+
+op q2st : query_t -> state_t.
+op st2q : state_t -> query_t.
+axiom q2st_inj : injective q2st.
+axiom q2st_can : cancel q2st st2q.
+
+op r2st : resp_t -> state_t.
+op st2r : state_t -> resp_t.
+axiom r2st_inj : injective r2st.
+axiom r2st_can : cancel r2st st2r.
+
+require State.
+clone import State as St with
+  type state_t <- state_t,
+  op   pair_st <- pair_st,
+  op   unpair_st <- unpair_st
+proof *.
+realize pair_st_inj by exact pair_st_inj.
+realize pair_st_can by exact pair_st_can.
+
+clone import ListState as LogState with
+  type elem_t  <- log_t,
+  op   elem2st <- fun (l : log_t) => pair_st (q2st l.`1, r2st l.`2),
+  op   st2elem <- fun st => let (q_st, r_st) = unpair_st st in (st2q q_st, st2r r_st),
+  op   int2st  <- int2st,
+  op   st2int  <- st2int
+  rename "list" as "log"
+proof *.
+realize elem2st_inj by smt(pair_st_inj q2st_inj r2st_inj).
+realize elem2st_can by smt(pair_st_can q2st_can r2st_can).
+realize int2st_inj by exact int2st_inj.
+realize int2st_can by exact int2st_can.
+
 (* TODO: Generalize to other oracles as well?
  * Most of the lemmas below need to assume very little about
  * the used oracle. It should be sufficient to require
@@ -830,15 +867,20 @@ local module InitWrapper(I : IGen, F : Forkable) = {
 }.
 
 local module RewindWrapper(I : IGen, F : Forkable) = {
-  (* FIXME: Need to handle log in SplitForker. *)
+  (* TODO: Rewrite SplitForker.snd in such a way that it doesn't use the
+   * Log module so that we don't have to store the log here? We would get
+   * rid of the serialization axioms here, but not in ForkingRO. *)
   proc getState() : state_t = {
-    var st;
-    st <@ F.getState();
-    return st;
+    var gF_st;
+    gF_st <@ F.getState();
+    return pair_st (gF_st, log2st Log.log);
   }
 
   proc setState(st : state_t) = {
-    F.setState(st);
+    var gF_st, log_st;
+    (gF_st, log_st) <- unpair_st st;
+    F.setState(gF_st);
+    Log.log <- st2log log_st;
   }
 
   proc run(q_j_log : query_t * int * (log_t list)) : out_t * (log_t list) = {
@@ -856,8 +898,23 @@ local lemma wrapper_rewindable :
   (forall &m st (x: glob RewindWrapper(I, F)), st = f x => Pr[RewindWrapper(I, F).setState(st) @ &m : glob RewindWrapper(I, F) = x] = 1%r) /\
   islossless RewindWrapper(I, F).setState.
 proof.
-(* FIXME. *)
-admit.
+elim (Rewinding.RW.rewindable_A F F_rewindable).
+move => gF2st [gF2st_inj [F_get_st_prop [F_set_st_prop F_set_st_ll]]].
+exists (fun (gWrap : glob RewindWrapper(I, F)) => pair_st (gF2st gWrap.`1, log2st gWrap.`2)) => /=.
+do split.
++ smt(pair_st_inj log2st_inj).
++ move => &m.
+  byphoare (_ : (glob RewindWrapper(I, F)) = (glob RewindWrapper(I, F)){m} ==> _) => //.
+  proc.
+  call (F_get_st_prop (glob F){m}) => //.
++ move => &m st gWrap st_pair_eq.
+  byphoare (_ : arg = st ==> _) => //.
+  proc.
+  wp.
+  call (F_set_st_prop gWrap.`1).
+  auto => />.
+  smt(pair_st_can log2st_can).
+islossless.
 qed.
 
 local module InitRewinder(I : IGen, F : Forkable) =
@@ -938,7 +995,7 @@ call (_ : true).
 wp => /=.
 conseq (_ : _ ==>
   ={glob I, glob F, o} /\
-  nth witness (sts10{1} ++ sts2{1}) j = s{2} /\
+  nth witness (sts10{1} ++ sts2{1}) j = (unpair_st s{2}).`1 /\
   ((nth witness (log10{1} ++ log20{1}) j).`1, j, take j (log10{1} ++ log20{1})) = r0{2} /\
   log10{1} = log0{2} /\ log20{1} = log'{2}
 ); 1: smt().
@@ -957,13 +1014,13 @@ seq 2 3 : (={glob I, glob F} /\ C{1} = j + 1 /\ (q0{1}, j, log10{1}) = r0{2} /\
  * the case analysis? *)
 inline SplitForker(I, F).snd Log.
 conseq (_ : _ ==> ={glob I, glob F, o} /\
-  head witness sts2{1} = s{2} /\
+  head witness sts2{1} = (unpair_st s{2}).`1 /\
   ((head witness log20{1}).`1, j, log10{1}) = r0{2} /\
   log10{1} = log0{2} /\ log20{1} = log'{2}
 ).
 + move => />.
   smt(nth0_head nth_cat take_size_cat).
-swap {2} [1..2] 6.
+swap {2} [1..2] 5.
 sp.
 wp.
 call (_ : true).
@@ -973,23 +1030,24 @@ wp.
 case (j = Q - 1).
 + rcondf {1} 1.
   + move => &n. skip. smt().
-  rcondf {2} 3.
+  rcondf {2} 4.
   + move => &n. wp. call (_ : true). skip. smt().
   wp.
   ecall {2} (get_st_preserves_glob (glob F){1}).
   wp.
   call (_ : true).
   skip => />.
+  smt(pair_st_can).
 
-unroll {1} 1. unroll {2} 3.
+unroll {1} 1. unroll {2} 4.
 rcondt {1} 1.
 + move => &n. skip. smt().
-rcondt {2} 3.
+rcondt {2} 4.
 + move => &n. wp. call (_ : true). skip. smt().
 call (_ : true).
 while (
   ={glob I, glob F, c, Log.log} /\ q1{1} = q2{2} /\
-  head witness sts0{1} = s{2} /\ sts0{1} <> [] /\
+  head witness sts0{1} = (unpair_st s{2}).`1 /\ sts0{1} <> [] /\
   ((head witness Log.log{1}).`1, j, log0{2}) = r0{2} /\ Log.log{1} <> []
 ).
 + wp. call (_ : true). wp. call (_ : true). sim. wp. call (_ : true). skip => /#.
@@ -998,7 +1056,7 @@ ecall {2} (get_st_preserves_glob (glob F){1}).
 wp.
 call (_ : true).
 skip => />.
-smt(head_cons).
+smt(head_cons pair_st_can).
 qed.
 
 local lemma pr_wrapper_main &m j :
@@ -1216,6 +1274,7 @@ have set_st_ph : forall gF,
 + move => gF.
   bypr => &m.
   by apply set_st_pr.
+wp.
 ecall {1} (set_st_ph (glob F){2}).
 inline RewindWrapper(I, F).run.
 wp.
@@ -1229,6 +1288,7 @@ have get_st_ph : forall gF,
   by apply get_st_pr.
 ecall {1} (get_st_ph (glob F){2}).
 conseq (_ : _ ==> ={glob I, glob F, r0}) => //.
++ smt(pair_st_can).
 sim.
 qed.
 
