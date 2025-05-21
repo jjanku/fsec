@@ -1082,12 +1082,21 @@ have : forall x, 0%r <= q x <= 1%r.
                    exists &l,
                      f (glob A){l} = x.`2 /\
                      Pr[A.run(x.`1) @ &l : P (x.`1, res)] = y).
+(* FIXME: The apply below causes the following error:
+ *   anomaly: File \"src/ecMatching.ml\", line 823, characters 6-12: Assertion failed
+ * Possibly a bug in EasyCrypt?
+ * https://formosa-crypto.zulipchat.com/#narrow/channel/308381-EasyCrypt.3A-questions-.26-features/topic/Anomaly.20when.20applying.20split.20in.20base.20logic/near/515265324
+ * Smt circumvents this for now.
+ *)
+smt(some_real_prop').
+(*
       apply  (some_real_prop' ((fun (y : real) =>
                    exists &l,
                      f (glob A){l} = x.`2 /\
                      Pr[A.run(x.`1) @ &l : P (x.`1, res)] = y))). 
 simplify. 
 elim c1. move => x0 &l pp. exists x0.  exists &l. apply pp.
+*)
 elim. move => &l [l1 l2].
 rewrite /q. rewrite - l2. rewrite Pr[mu_le1]. rewrite Pr[mu_ge0]. auto.
    move => c2. rewrite /q /some_real.   
