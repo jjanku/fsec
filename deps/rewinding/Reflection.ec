@@ -304,6 +304,7 @@ have : forall &n,
   Pr[A.main(a) @ &n0 : res = x.`1 /\ (glob A) = x.`2 ] =
   some_real (fun (p : real) => forall &n0_0, (glob A){n0_0} = (glob A){m}
         => Pr[A.main(a) @ &n0_0 : res = x.`1 /\ (glob A) = x.`2 ] = p).       
+  move => &n0.
   apply (some_real_prop (fun (p : real) => forall &n0, (glob A){n0} = (glob A){m} 
         => Pr[A.main(a) @ &n0 : res = x.`1 /\ (glob A) = x.`2 ] = p)).
   simplify.

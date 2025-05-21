@@ -137,7 +137,7 @@ move => &m x bz e.
 byphoare (_: (glob A) = (glob A){m} /\ bz = b ==> _). proc*.  call (s3 x). skip.
 auto. auto. auto.
 exists fA. progress.
-bypr.
+bypr => &m0.
 rewrite Pr[mu_not].
 rewrite ll1.
 have ll3 : forall &m, ((glob A){m} = x)  => Pr[A.getState() @ &m : (glob A) = x /\ res = fA x] = 1%r.
@@ -145,8 +145,8 @@ move => &m eq. byphoare (_: (glob A) = (glob A){m} ==> _) .
 proc*. call (s2 x). auto. auto. auto.
 smt().  
 bypr. progress. apply ll1.
-bypr. rewrite Pr[mu_not]. 
-move => &m e. rewrite (ll2 &m x). auto.
+bypr => &m. rewrite Pr[mu_not].
+move => e. rewrite (ll2 &m x). auto.
 have qq :  forall &m,  forall (x : glob A), forall (b : sbits),
    b = fA x => Pr[A.setState(b) @ &m : (glob A) = x] = 1%r.  
 move => &w z bz eq. byphoare (_: (glob A) = (glob A){w} /\ bz = b ==> _). proc*.
@@ -234,8 +234,7 @@ proof.  move => ill.
 elim (rewindable_A_plus A RewProp).
 move => fA [s1 [s2 [s2h [s2ll [s3 [s3h ]]]] ]] s3ll.
 sp. wp.
-exists* (glob A){2}. elim*.
-auto.
+exists* (glob A){2}. elim* => A_R.
 seq 0 1 : (A_R = (glob A){2} /\ z0{2} = z{2} /\ ={z, glob A} /\ s{2} = fA A_R).
 
 call {2} (s2 A_R). skip. progress.

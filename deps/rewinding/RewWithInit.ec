@@ -1101,11 +1101,11 @@ apply list_ind. simplify. smt().
 simplify. move => x l ih gpos.
 rewrite bigLemma. rewrite bigLemma.
 simplify.               
-  have : `|g x * mass (D ((glob B){m}, (glob A){m}) i) x| <= mass (D ((glob B){m}, (glob A){m}) i) x.
-    have ->: `|g x * mass (D ((glob B){m}, (glob A){m}) i) x| = g x * mass (D ((glob B){m}, (glob A){m}) i) x .
+  have : `|g x * mass (D ((glob A){m}, (glob B){m}) i) x| <= mass (D ((glob A){m}, (glob B){m}) i) x.
+    have ->: `|g x * mass (D ((glob A){m}, (glob B){m}) i) x| = g x * mass (D ((glob A){m}, (glob B){m}) i) x .
     smt(@Distr).
     have qx : 0%r <= g x <= 1%r. apply gpos.
-    have mp : 0%r <= mass (D ((glob B){m}, (glob A){m}) i) x. smt(@Distr).
+    have mp : 0%r <= mass (D ((glob A){m}, (glob B){m}) i) x. smt(@Distr).
   smt().
 smt().
 have bmu : forall J, uniq J => big predT (fun (i0 : a) => mass (D (glob QQ(A, B)){m} i) i0) J = mu (D (glob QQ(A, B)){m} i) (mem J).
