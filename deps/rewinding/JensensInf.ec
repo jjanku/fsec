@@ -354,7 +354,7 @@ apply is_loss. smt(@Distr). apply fconv.
   rewrite (ec_edot X M (f \o g)).
   have ff2 : mu X M >= 0%r.
   smt(@Distr).
-  smt().        (* step 3 *)
+  smt(ler_wpmul2l).        (* step 3 *)
 apply (ler_trans
   (mu X M *  (Ec X (f \o g) M) + mu X (predC M) * d)).
 case ((mu X (predC M)) = 0%r).
@@ -386,14 +386,14 @@ apply has_E. smt(@Distr).
 smt().
 have dp : mu X (predC M) * f (Ec X g (predC M)) <= mu X (predC M) * d.
   have qq : forall (a b c : real), a >= 0%r => b <= c => a * b <= a * c. smt().
-  have mup : mu X (predC M) >= 0%r. smt(@Distr).
+  have mup : mu X (predC M) >= 0%r. apply ge0_mu.
   (*have dp  : d >= 0%r. smt. *)
   smt().
 smt().
   have mup : mu X (predC M) >= 0%r. smt(@Distr).
   have : mu X (predC M) * f (Ec X g (predC M)) <= mu X (predC M) * d.
-   clear finM muXC nz eprop. smt().
-  smt().
+   clear finM muXC nz eprop. apply ler_wpmul2l => //.
+   apply ler_add2l.
 apply (ler_trans (E X (f \o g) -  mu X (predC M) * Ec X (f \o g) (predC M) + mu X (predC M) * d)).
   have : E X (f \o g) = mu X M * Ec X (f \o g) M
                         + mu X (predC M) * Ec X (f \o g) (predC M).
@@ -423,7 +423,7 @@ smt().
          E X (f \o g) - mu X (predC M) * c.
      have muc : mu X (predC M) * c <= mu X (predC M) * Ec X (f \o g) (predC M).
       have mup : mu X (predC M) >= 0%r. smt(@Distr).
-      clear finM muXC eprop. smt().
+      clear finM muXC eprop. apply ler_wpmul2l => //.
      smt().
 smt().
 have ->: E X (f \o g) - mu X (predC M) * c + mu X (predC M) * d

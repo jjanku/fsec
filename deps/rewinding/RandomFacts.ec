@@ -119,7 +119,7 @@ lemma prjokk ['a]  (d  : 'a distr) j J :
   enumerate J (support d) => enumerate j (support d)
   => forall n, exists N, forall x, x \in d => x \in (pmap j (range 0 n)) 
       => x \in (pmap J (range 0 N)).
-move => e1 e2.  apply natind. smt(@List).
+move => e1 e2.  apply natind. smt(range_geq).
 simplify. move => n nc ih. 
 elim ih. move => N Np.
 case (j n = None).
