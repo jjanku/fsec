@@ -1222,11 +1222,13 @@ have snd_forall :
   conseq
     (_ : _ ==> 0 <= res.`1 < n => P_out (glob I, (res.`1, res.`3), IForker.log2))
     (_ : _ ==>      res.`1 = n => P_out (glob I, (res.`1, res.`3), IForker.log2)) => //.
-  + smt().
+  (* FIXME: Getting "Unbound variable: j:int" in smt() calls below with EC v2025.08.
+   * Clearing ind helps. Why? *)  
+  + clear ind. smt().
   + apply (ass n).
-    smt().
+    clear ind. smt().
   apply ind => //.
-  smt().
+  clear ind. move => j j_bound. apply ass. smt().
 rewrite /success.
 apply snd_forall.
 smt(Q_pos).
