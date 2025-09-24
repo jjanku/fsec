@@ -282,7 +282,7 @@ qed.
 
 section PROOF.
 
-local equiv oracle_log_equiv (O <: Oracle) :
+local equiv oracle_log_equiv (O <: Oracle {-Log}) :
   O.get ~ Log(O).get : ={glob O, arg} ==> ={glob O, res}.
 proof.
 proc *.
@@ -1221,11 +1221,14 @@ have snd_forall :
   conseq
     (_ : _ ==> 0 <= res.`1 < n => P_out (glob I, (res.`1, res.`3), IForker.log2))
     (_ : _ ==>      res.`1 = n => P_out (glob I, (res.`1, res.`3), IForker.log2)) => //.
-  + smt().
+  (* FIXME: In EC v2025.08, the smt() calls below fail with "Unbound variable: j:int".
+   * Clearing ind helps. Why? *)
+  + clear ind; smt().
   + apply (ass n).
-    smt().
+    clear ind; smt().
   apply ind => //.
-  smt().
+  move => j j_bound; apply ass.
+  clear ind; smt().
 rewrite /success.
 apply snd_forall.
 smt(Q_pos).
