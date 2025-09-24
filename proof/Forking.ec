@@ -282,7 +282,7 @@ qed.
 
 section PROOF.
 
-local equiv oracle_log_equiv (O <: Oracle) :
+local equiv oracle_log_equiv (O <: Oracle {-Log}) :
   O.get ~ Log(O).get : ={glob O, arg} ==> ={glob O, res}.
 proof.
 proc *.
