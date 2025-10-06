@@ -35,8 +35,8 @@ clone import RewBasics as RW with type sbits <- sbits,
                                   op unpair <- unpair.
 
 
-require Reflection.
-clone import Reflection.Refl as Re with
+require Reflect.
+clone import Reflect.Refl as Re with
                                   type at  <- iat,
                                   type rt  <- irt * sbits.
 
