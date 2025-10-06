@@ -7,7 +7,7 @@ require import Finite.
 require (*--*) FinType.
 require import Distr.
 require import RandomFacts.
-require Reflection.
+require Reflect.
 
 theory FinApprox.
 
@@ -298,7 +298,7 @@ section.
 
 type at, rt.
 
-clone import Reflection.Refl with type rt <- rt,
+clone import Reflect.Refl with type rt <- rt,
                                   type at <- at.
 
 
