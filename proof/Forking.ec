@@ -1,4 +1,4 @@
-(* Forking lemma - proof sketch
+(* Forking lemma.
  *
  * Largely based on the proof of the general forking lemma
  * by Bellare & Neven [0].
