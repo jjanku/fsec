@@ -189,7 +189,6 @@ module IForker(I : IGen, F : Forkable) = {
 
   (* Second partial run of F, with query logging. *)
   proc snd(q : query_t, c : int) : out_t * (log_t list) = {
-    var log : log_t list;
     var o : out_t;
     var r : resp_t;
 
