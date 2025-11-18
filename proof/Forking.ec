@@ -388,7 +388,7 @@ qed.
 
 local lemma set_st_ll : islossless F.setState.
 proof.
-smt(F_rewindable).
+by elim F_rewindable => [_ [_ [_ [_ ll]]]].
 qed.
 
 (* STEP 1:
@@ -573,14 +573,21 @@ have -> :
 apply ge0ind => /=.
 + smt().
 + rewrite big_geq => //.
-  have -> /= : forall x, (0 <= x < 0) = false by smt().
-  by rewrite Pr[mu_false].
+  byphoare (_ : _ ==> false) => //.
+  smt().
 move => n n_ge0 ind _.
 rewrite big_int_recr //=.
 rewrite Pr[mu_split IForker.j1 < n].
-have -> : forall b x, ((b /\ 0 <= x < n + 1) /\ x < n) <=> (b /\ 0 <= x < n) by smt().
+rewrite (_ :
+  Pr[IForker(I, F).run() @ &m : (IForker.j1 = IForker.j2 /\ 0 <= IForker.j1 < n + 1) /\ IForker.j1 < n] =
+  Pr[IForker(I, F).run() @ &m : IForker.j1 = IForker.j2 /\ 0 <= IForker.j1 < n]).
++ byequiv (_ : ={glob IForker(I, F)} ==> ={glob IForker}); [sim | trivial | smt()].
 rewrite ind //.
-have -> // : forall j1 j2, ((j1 = j2 /\ 0 <= j1 < n + 1) /\ ! j1 < n) <=> (j1 = n /\ j2 = n) by smt().
+rewrite (_ :
+  Pr[IForker(I, F).run() @ &m : (IForker.j1 = IForker.j2 /\ 0 <= IForker.j1 < n + 1) /\ ! IForker.j1 < n] =
+  Pr[IForker(I, F).run() @ &m : IForker.j1 = n /\ IForker.j2 = n]).
++ byequiv (_ : ={glob IForker(I, F)} ==> ={glob IForker}); [sim | trivial | smt()].
+trivial.
 qed.
 
 local lemma pr_succ_sum &m :
@@ -596,14 +603,21 @@ have -> :
 apply ge0ind => /=.
 + smt().
 + rewrite big_geq => //.
-  have -> /= : forall x, (0 <= x < 0) = false by smt().
-  by rewrite Pr[mu_false].
+  byphoare (_ : _ ==> false) => //.
+  smt().
 move => n n_ge0 ind _.
 rewrite big_int_recr //=.
 rewrite Pr[mu_split res.`1 < n].
-have -> : forall x, ((0 <= x < n + 1) /\ x < n) <=> (0 <= x < n) by smt().
+rewrite (_ :
+  Pr[IRunner(I, F, FRO).run() @ &m : 0 <= res.`1 < n + 1 /\ res.`1 < n] =
+  Pr[IRunner(I, F, FRO).run() @ &m : 0 <= res.`1 < n]).
++ byequiv (_ : ={glob IRunner(I, F, FRO)} ==> ={res}); [sim | trivial | smt()].
 rewrite ind //.
-have -> // : forall j, ((0 <= j < n + 1) /\ ! j < n) <=> (j = n) by smt().
+rewrite (_ :
+  Pr[IRunner(I, F, FRO).run() @ &m : 0 <= res.`1 < n + 1 /\ ! res.`1 < n] =
+  Pr[IRunner(I, F, FRO).run() @ &m : res.`1 = n]).
++ byequiv (_ : ={glob IRunner(I, F, FRO)} ==> ={res}); [sim | trivial | smt()].
+trivial.
 qed.
 
 (* STEP 2:
