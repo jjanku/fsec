@@ -4,7 +4,7 @@ See the [eprint](https://eprint.iacr.org/2025/573) for more details about this p
 
 ## Setup
 
-The project is checked using [EasyCrypt 2025.10](https://github.com/EasyCrypt/easycrypt/releases/tag/r2025.10), see [CI setup](./.github/workflows/ci.yaml). Required SMT solvers can be found in [easycrypt.project](easycrypt.project). (Other versions may work as well. Or not.)
+The project is checked using [EasyCrypt 2025.11](https://github.com/EasyCrypt/easycrypt/releases/tag/r2025.11), see [CI setup](./.github/workflows/ci.yaml). Required SMT solvers can be found in [easycrypt.project](easycrypt.project). (Other versions may work as well. Or not.)
 
 More detailed installation instructions can be found on [EasyCrypt's GitHub](https://github.com/EasyCrypt/easycrypt).
 

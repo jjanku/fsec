@@ -107,9 +107,9 @@ lemma rewindable_A :
 proof. elim RewProp.
 progress. exists f.
 progress.
-bypr. progress. 
+bypr => &m. progress. 
 apply (H0 &m). auto.
-bypr.  progress. apply (H1 &m b{m}). auto.
+bypr => &m.  progress. apply (H1 &m b{m}). auto.
 qed.
 
 
@@ -137,6 +137,7 @@ move => &m x bz e.
 byphoare (_: (glob A) = (glob A){m} /\ bz = b ==> _). proc*.  call (s3 x). skip.
 auto. auto. auto.
 exists fA. progress.
+apply s2.
 bypr => &m0.
 rewrite Pr[mu_not].
 rewrite ll1.
@@ -145,6 +146,7 @@ move => &m eq. byphoare (_: (glob A) = (glob A){m} ==> _) .
 proc*. call (s2 x). auto. auto. auto.
 smt().  
 bypr. progress. apply ll1.
+apply s3.
 bypr => &m. rewrite Pr[mu_not].
 move => e. rewrite (ll2 &m x). auto.
 have qq :  forall &m,  forall (x : glob A), forall (b : sbits),
@@ -307,7 +309,7 @@ call (s3h ga).
 call (_:true).
 call (s2h ga).
 auto. 
- call (dbl2 M y ga p).  skip. auto.
+ call (dbl2 M y ga p).  apply ph. skip. auto.
  call ph.
 skip.   auto.
 hoare.
@@ -324,7 +326,7 @@ local lemma dbl_main &m M y (ga : glob A) (p : real) : (glob A){m} = ga =>
    => Pr[ GetRunSetRunConj(A).main(y) @ &m : M res.`1 /\ M res.`2 ] = p * p.
 proof. move => gae pr. 
 have z : phoare[ A.run : (glob A) = ga /\ arg = y ==> M (y, res) ] = p.
-bypr. progress. apply (pr &m0 ).
+bypr => &m0. progress. apply (pr &m0 ).
 auto. apply (dbl3 &m M y ga). assumption.
 apply z. qed.
 
