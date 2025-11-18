@@ -213,7 +213,7 @@ local lemma zzz &m &n : exists (f : glob A -> sbits),
 elim (rewindable_A_plus A RewProp) .
 progress.
 exists f.
-progress. apply ll_A_run. (* apply ll_B_run.*)
+progress. apply H0. apply H3. apply ll_A_run. (* apply ll_B_run.*)
 bypr.  move => &m1 eq.
 have jk  : (glob A){m0} = (glob A){m1}. smt().
 elim eq. move => _ z. rewrite z.
@@ -254,7 +254,7 @@ local lemma qqq &m &n : exists (f : glob A -> sbits),
       = Pr[ QQ(A,B).main51(i) @ &m : res.`2 = s0 /\ res.`1 = r ] 
       * Pr[ QQ(A,B).main52(r) @ &n : M res.`1 /\ M res.`2 ].
 proof. elim (zzz &m &n).
-progress. exists f. progress. byphoare.
+progress. exists f. progress. apply H0. apply H2. apply (H6 &m0) => //. byphoare.
 proc. seq 1 : (f (glob A) = s0) 0%r 0%r 1%r 0%r (f (glob A) = s.`2). 
 inline*. wp.
 seq 2 : (true).
@@ -375,7 +375,7 @@ local lemma ooo &m &n : exists (f : glob A -> sbits),
           /\ res.`2.`2 = s0 /\ res.`2.`1 = r ] 
       = Pr[ QQ(A,B).main51(i) @ &m : res.`2 = s0 /\ res.`1 = r ] 
       * Pr[ A.run(r) @ &n : M (r, res) ] * Pr[ A.run(r) @ &n : M (r, res) ]).
-proof. elim (qqq &m &n). progress. exists f. progress .
+proof. elim (qqq &m &n). progress. exists f. progress . apply H0. apply H2. apply (H6 &m0) => //.
 have eq :  Pr[QQ(A,B).main52(r) @ &n0 : M res.`1 /\ M res.`2] 
            = Pr[ GetRunSetRunConj(A).main(r) @ &n0 : M res.`1 /\ M res.`2 ].
 byequiv;auto.
@@ -427,7 +427,7 @@ local lemma ppp &m &n : exists (f : glob A -> sbits),
         Pr[ QQ(A,B).main6(i) @ &m : M res.`1 /\ res.`2.`2 = s0 /\ res.`2.`1 = r ] 
       = Pr[ QQ(A,B).main51(i) @ &m : res.`2 = s0 /\ res.`1 = r ] 
         * Pr[ A.run(r) @ &n : M (r, res) ]).
-proof. elim (ooo &m &n). progress. exists f. progress. 
+proof. elim (ooo &m &n). progress. exists f. progress. apply H0. apply H2. apply (H6 &m0) => //.
 byphoare (_ : (arg = i) /\ (glob A) = (glob A){m0} 
               /\ (glob B) = (glob B){m0} ==> _).
 proc*. inline QQ(A,B).main6.
