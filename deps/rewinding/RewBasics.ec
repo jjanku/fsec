@@ -109,7 +109,7 @@ progress. exists f.
 progress.
 bypr => &m. progress. 
 apply (H0 &m). auto.
-bypr => &m.  progress. apply (H1 &m b{m}). auto.
+bypr => &m.  progress. apply (H1 &m). auto.
 qed.
 
 
