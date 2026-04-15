@@ -13,15 +13,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/easycrypt/ec-build-box:r2026.03
+      image: ghcr.io/easycrypt/ec-test-box:r2026.03
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: install easycrypt
-        run: |
-          opam pin add -n easycrypt https://github.com/EasyCrypt/easycrypt.git#r2026.03
-          opam install easycrypt
       - name: detect SMT solvers
         run: opam exec -- easycrypt why3config
 
