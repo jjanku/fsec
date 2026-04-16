@@ -538,13 +538,20 @@ module Red_CMA_KOA (A : FAdv_CMA) : FAdv_KOA = {
       signed <- [];
     }
 
+    (* Honest Verifier Zero Knowledge (HVZK) simulator. *)
+    proc hvzk_sim() : trans_t = {
+      var com, chal, resp;
+      chal <$ dchal;
+      resp <$ dt;
+      com <- (g ^ resp) * (pk ^ -chal);
+      return (com, chal, resp);     
+    }
+
     proc sign(msg : msg_t) : sig_t = {
       var com, chal, resp, q, s;
 
       if (size signed < QS) {
-        chal <$ dchal;
-        resp <$ dt;
-        com <- (g ^ resp) * (pk ^ -chal);
+        (com, chal, resp) <@ hvzk_sim();
 
         q <- (pk, com, msg);
         if (q \in m) {
@@ -749,6 +756,7 @@ fel
   smt(fsize_set).
 + proc.
   rcondt 1; 1: auto.
+  inline.
   seq 1 : true
     1%r ((QS + QR)%r / order%r)
     0%r _
@@ -764,10 +772,10 @@ fel
     + smt(invr_gt0 gt0_order).
     smt().
   apply ler_trans.
-  pose P := (fun (q : query_t) (x : exp) => q.`2 = g ^ x * Red_CMA_KOA.Simulator.pk{hr} ^ -chal{hr}).
+  pose P := (fun (q : query_t) (x : exp) => q.`2 = g ^ x * Red_CMA_KOA.Simulator.pk{hr} ^ -chal0{hr}).
   move : (mu_mem_le_fsize Red_CMA_KOA.m{hr} dt P (1%r / order%r) _).
   + move => q _.
-    pose s := loge (q.`2 /  Red_CMA_KOA.Simulator.pk{hr} ^ -chal{hr}).
+    pose s := loge (q.`2 /  Red_CMA_KOA.Simulator.pk{hr} ^ -chal0{hr}).
     rewrite -(dt1E s).
     apply mu_le.
     move => x _ rel /=.
@@ -840,7 +848,7 @@ inline BoundedSO.
 sp.
 if => //; 2: auto.
 inline.
-seq 8 4 : (
+seq 8 5 : (
   r{1} = chal{2} /\ x{1} = q{2} /\ ={com} /\ (nonce + sk * r){1} = resp{2} /\ m0{1} = msg{2} /\
   O_CMA_Default.qs{1} = Red_CMA_KOA.Simulator.signed{2} /\ LRO.m{1} = Red_CMA_KOA.m{2} /\
   overlay LRO.m{2} Red_CMA_KOA.m{2} Red_CMA_KOA.Simulator.signed{2} /\ x{1}.`3 = m0{1}
@@ -937,6 +945,7 @@ local phoare simulator_bad_ll : [
 ] = 1%r.
 proof.
 proc.
+inline.
 if; auto.
 smt(dchal_ll dt_ll).
 qed.
