@@ -76,7 +76,8 @@ module (Schnorr : Scheme_ROM) (RO : Oracle) = {
   }
 }.
 
-op extractor (pk : pk_t) (t1 t2 : trans_t) =
+(* Special Soundness (SS) extractor. *)
+op ss_extractor (pk : pk_t) (t1 t2 : trans_t) =
 (*  let (_, chal1, resp1) = t1 in
   let (_, chal2, resp2) = t2 in
   (resp1 - resp2) / (chal1 - chal2). *)
@@ -84,12 +85,12 @@ op extractor (pk : pk_t) (t1 t2 : trans_t) =
 
 (* The main part of the proof is taken from the following EC example:
  * https://github.com/EasyCrypt/easycrypt/blob/r2024.09/examples/SchnorrPK.ec#L146-L148 *)
-lemma extractor_corr (pk : pk_t) (t1 t2 : trans_t) :
+lemma ss_extractor_corr (pk : pk_t) (t1 t2 : trans_t) :
   t1.`1 = t2.`1 => t1.`2 <> t2.`2 =>
   verify pk t1 => verify pk t2 =>
-  pk = g ^ (extractor pk t1 t2).
+  pk = g ^ (ss_extractor pk t1 t2).
 proof.
-rewrite /verify /extractor.
+rewrite /verify /ss_extractor.
 pose r := t1.`1.
 pose z1 := t1.`3; pose z2 := t2.`3.
 pose e1 := t1.`2; pose e2 := t2.`2.
@@ -406,7 +407,7 @@ module RedAdv (A : FAdv_KOA) : Adv_DL = {
 
     (qo, resp1, resp2) <@ ForkerRO(AdvWrapper(A)).run(h);
     ret <- omap (fun q =>
-      let (_, com, __) = q in extractor h
+      let (_, com, __) = q in ss_extractor h
         (com, oget IForkerRO.m1.[q], resp1)
         (com, oget IForkerRO.m2.[q], resp2)
     ) qo;
@@ -423,7 +424,7 @@ local module Exp_DL0 (A : FAdv_KOA) = {
 
     (qo, resp1, resp2) <@ IForkerRO(KeyGen, AdvWrapper(A)).run();
     ret <- omap (fun q =>
-      let (_, com, __) = q in extractor (g ^ KeyGen.sk)
+      let (_, com, __) = q in ss_extractor (g ^ KeyGen.sk)
         (com, oget IForkerRO.m1.[q], resp1)
         (com, oget IForkerRO.m2.[q], resp2)
     ) qo;
@@ -478,7 +479,7 @@ call (
 + bypr => &m0 mem_eqs.
   byequiv wrap_koa_success_equiv => /#.
 skip => />.
-smt(extractor_corr pow_bij).
+smt(ss_extractor_corr pow_bij).
 qed.
 
 end section SECURITY_EUF_KOA.
